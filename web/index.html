@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Octree Pathfinding Visualization</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+        }
+        
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            color: white;
+            min-width: 300px;
+        }
+        
+        .control-group {
+            margin-bottom: 15px;
+        }
+        
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .control-group input, .control-group select, .control-group button {
+            width: 100%;
+            padding: 8px;
+            border: none;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 14px;
+        }
+        
+        .control-group button {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .control-group button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        .control-group button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .coords-input {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .coords-input input {
+            width: auto;
+            flex: 1;
+        }
+        
+        #status {
+            background: rgba(0, 255, 0, 0.2);
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 15px;
+            font-size: 12px;
+        }
+        
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            max-width: 400px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="ui">
+            <h3>Octree Pathfinding Demo</h3>
+            
+            <div class="control-group">
+                <label>Scene Setup</label>
+                <button id="initBtn">Initialize Octree</button>
+            </div>
+            
+            <div class="control-group">
+                <label>Add Geometry</label>
+                <select id="geometryType">
+                    <option value="box">Box</option>
+                    <option value="capsule">Capsule</option>
+                    <option value="mesh">Triangle Mesh</option>
+                </select>
+                <button id="addGeometryBtn">Add Random Geometry</button>
+            </div>
+            
+            <div class="control-group">
+                <button id="buildBtn" disabled>Build Octree</button>
+            </div>
+            
+            <div class="control-group">
+                <label>Start Position (X, Y, Z)</label>
+                <div class="coords-input">
+                    <input type="number" id="startX" value="-8" step="0.5">
+                    <input type="number" id="startY" value="0" step="0.5">
+                    <input type="number" id="startZ" value="-8" step="0.5">
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label>End Position (X, Y, Z)</label>
+                <div class="coords-input">
+                    <input type="number" id="endX" value="8" step="0.5">
+                    <input type="number" id="endY" value="0" step="0.5">
+                    <input type="number" id="endZ" value="8" step="0.5">
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label>Step Size</label>
+                <input type="number" id="stepSize" value="0.5" step="0.1" min="0.1">
+            </div>
+            
+            <div class="control-group">
+                <button id="pathfindBtn" disabled>Find Path</button>
+            </div>
+            
+            <div class="control-group">
+                <label>Visualization</label>
+                <button id="toggleOctreeBtn">Toggle Octree Visualization</button>
+                <button id="clearBtn">Clear Scene</button>
+            </div>
+            
+            <div id="status">Ready</div>
+        </div>
+        
+        <div id="instructions">
+            <strong>Instructions:</strong><br>
+            1. Click "Initialize Octree" to set up the space<br>
+            2. Add various geometries as obstacles<br>
+            3. Build the octree structure<br>
+            4. Set start/end points and find path<br>
+            5. Use mouse to rotate, wheel to zoom
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+    
+    <script>
+        class OctreeVisualizer {
+            constructor() {
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.controls = null;
+                this.octreeGroup = new THREE.Group();
+                this.geometryGroup = new THREE.Group();
+                this.pathGroup = new THREE.Group();
+                this.markersGroup = new THREE.Group();
+                
+                this.apiBase = 'http://localhost:8080/api';
+                this.showOctree = false;
+                this.octreeData = null;
+                
+                this.init();
+                this.setupEventListeners();
+                this.animate();
+            }
+            
+            init() {
+                // Scene setup
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0x1a1a2e);
+                this.scene.fog = new THREE.Fog(0x1a1a2e, 50, 200);
+                
+                // Camera setup
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                this.camera.position.set(20, 20, 20);
+                this.camera.lookAt(0, 0, 0);
+                
+                // Renderer setup
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                document.getElementById('container').appendChild(this.renderer.domElement);
+                
+                // Lighting
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+                this.scene.add(ambientLight);
+                
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight.position.set(20, 20, 10);
+                directionalLight.castShadow = true;
+                directionalLight.shadow.mapSize.width = 2048;
+                directionalLight.shadow.mapSize.height = 2048;
+                this.scene.add(directionalLight);
+                
+                // Controls
+                this.setupControls();
+                
+                // Add groups to scene
+                this.scene.add(this.octreeGroup);
+                this.scene.add(this.geometryGroup);
+                this.scene.add(this.pathGroup);
+                this.scene.add(this.markersGroup);
+                
+                // Add coordinate axes
+                const axesHelper = new THREE.AxesHelper(15);
+                this.scene.add(axesHelper);
+                
+                // Add grid
+                const gridHelper = new THREE.GridHelper(20, 20, 0x888888, 0x444444);
+                this.scene.add(gridHelper);
+            }
+            
+            setupControls() {
+                // Simple orbit controls implementation
+                let isMouseDown = false;
+                let mouseX = 0, mouseY = 0;
+                let targetRotationX = 0, targetRotationY = 0;
+                let rotationX = 0, rotationY = 0;
+                
+                this.renderer.domElement.addEventListener('mousedown', (event) => {
+                    isMouseDown = true;
+                    mouseX = event.clientX;
+                    mouseY = event.clientY;
+                });
+                
+                this.renderer.domElement.addEventListener('mouseup', () => {
+                    isMouseDown = false;
+                });
+                
+                this.renderer.domElement.addEventListener('mousemove', (event) => {
+                    if (!isMouseDown) return;
+                    
+                    const deltaX = event.clientX - mouseX;
+                    const deltaY = event.clientY - mouseY;
+                    
+                    targetRotationY += deltaX * 0.01;
+                    targetRotationX += deltaY * 0.01;
+                    
+                    mouseX = event.clientX;
+                    mouseY = event.clientY;
+                });
+                
+                this.renderer.domElement.addEventListener('wheel', (event) => {
+                    const distance = this.camera.position.length();
+                    const factor = event.deltaY > 0 ? 1.1 : 0.9;
+                    this.camera.position.multiplyScalar(factor);
+                });
+                
+                // Update camera rotation
+                const updateCamera = () => {
+                    rotationX += (targetRotationX - rotationX) * 0.1;
+                    rotationY += (targetRotationY - rotationY) * 0.1;
+                    
+                    const distance = this.camera.position.length();
+                    this.camera.position.x = distance * Math.sin(rotationY) * Math.cos(rotationX);
+                    this.camera.position.y = distance * Math.sin(rotationX);
+                    this.camera.position.z = distance * Math.cos(rotationY) * Math.cos(rotationX);
+                    this.camera.lookAt(0, 0, 0);
+                    
+                    requestAnimationFrame(updateCamera);
+                };
+                updateCamera();
+            }
+            
+            setupEventListeners() {
+                document.getElementById('initBtn').addEventListener('click', () => this.initializeOctree());
+                document.getElementById('addGeometryBtn').addEventListener('click', () => this.addRandomGeometry());
+                document.getElementById('buildBtn').addEventListener('click', () => this.buildOctree());
+                document.getElementById('pathfindBtn').addEventListener('click', () => this.findPath());
+                document.getElementById('toggleOctreeBtn').addEventListener('click', () => this.toggleOctreeVisualization());
+                document.getElementById('clearBtn').addEventListener('click', () => this.clearScene());
+                
+                window.addEventListener('resize', () => this.onWindowResize());
+            }
+            
+            async initializeOctree() {
+                this.updateStatus('Initializing octree...');
+                
+                try {
+                    const response = await fetch(`${this.apiBase}/init`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            bounds: {
+                                min: { x: -10, y: -10, z: -10 },
+                                max: { x: 10, y: 10, z: 10 }
+                            },
+                            max_depth: 5,
+                            min_size: 1.0
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        document.getElementById('buildBtn').disabled = false;
+                        this.updateStatus('Octree initialized successfully');
+                    } else {
+                        throw new Error('Failed to initialize octree');
+                    }
+                } catch (error) {
+                    this.updateStatus(`Error: ${error.message}`);
+                }
+            }
+            
+            async addRandomGeometry() {
+                const type = document.getElementById('geometryType').value;
+                this.updateStatus(`Adding ${type}...`);
+                
+                try {
+                    let geometryData;
+                    let visualGeometry;
+                    
+                    if (type === 'box') {
+                        geometryData = {
+                            center: {
+                                x: (Math.random() - 0.5) * 16,
+                                y: (Math.random() - 0.5) * 16,
+                                z: (Math.random() - 0.5) * 16
+                            },
+                            size: {
+                                x: Math.random() * 3 + 1,
+                                y: Math.random() * 3 + 1,
+                                z: Math.random() * 3 + 1
+                            }
+                        };
+                        
+                        // Create visual representation
+                        const geometry = new THREE.BoxGeometry(
+                            geometryData.size.x,
+                            geometryData.size.y,
+                            geometryData.size.z
+                        );
+                        const material = new THREE.MeshLambertMaterial({ 
+                            color: new THREE.Color().setHSL(Math.random(), 0.7, 0.5),
+                            transparent: true,
+                            opacity: 0.8
+                        });
+                        visualGeometry = new THREE.Mesh(geometry, material);
+                        visualGeometry.position.copy(geometryData.center);
+                        visualGeometry.castShadow = true;
+                        visualGeometry.receiveShadow = true;
+                        
+                    } else if (type === 'capsule') {
+                        const start = {
+                            x: (Math.random() - 0.5) * 16,
+                            y: (Math.random() - 0.5) * 16,
+                            z: (Math.random() - 0.5) * 16
+                        };
+                        const end = {
+                            x: start.x + (Math.random() - 0.5) * 6,
+                            y: start.y + (Math.random() - 0.5) * 6,
+                            z: start.z + (Math.random() - 0.5) * 6
+                        };
+                        
+                        geometryData = {
+                            start: start,
+                            end: end,
+                            radius: Math.random() * 1 + 0.5
+                        };
+                        
+                        // Create visual representation (simplified as cylinder)
+                        const height = Math.sqrt(
+                            Math.pow(end.x - start.x, 2) +
+                            Math.pow(end.y - start.y, 2) +
+                            Math.pow(end.z - start.z, 2)
+                        );
+                        const geometry = new THREE.CylinderGeometry(
+                            geometryData.radius,
+                            geometryData.radius,
+                            height,
+                            8
+                        );
+                        const material = new THREE.MeshLambertMaterial({ 
+                            color: new THREE.Color().setHSL(Math.random(), 0.7, 0.5),
+                            transparent: true,
+                            opacity: 0.8
+                        });
+                        visualGeometry = new THREE.Mesh(geometry, material);
+                        
+                        const center = {
+                            x: (start.x + end.x) / 2,
+                            y: (start.y + end.y) / 2,
+                            z: (start.z + end.z) / 2
+                        };
+                        visualGeometry.position.copy(center);
+                        visualGeometry.castShadow = true;
+                        visualGeometry.receiveShadow = true;
+                        
+                    } else if (type === 'mesh') {
+                        // Create a simple triangle mesh (tetrahedron)
+                        const center = {
+                            x: (Math.random() - 0.5) * 16,
+                            y: (Math.random() - 0.5) * 16,
+                            z: (Math.random() - 0.5) * 16
+                        };
+                        const size = Math.random() * 2 + 1;
+                        
+                        const triangles = [
+                            {
+                                a: { x: center.x, y: center.y + size, z: center.z },
+                                b: { x: center.x - size, y: center.y - size, z: center.z + size },
+                                c: { x: center.x + size, y: center.y - size, z: center.z + size }
+                            },
+                            {
+                                a: { x: center.x, y: center.y + size, z: center.z },
+                                b: { x: center.x + size, y: center.y - size, z: center.z + size },
+                                c: { x: center.x, y: center.y - size, z: center.z - size }
+                            }
+                        ];
+                        
+                        const response = await fetch(`${this.apiBase}/mesh`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(triangles)
+                        });
+                        
+                        if (response.ok) {
+                            // Create visual representation
+                            const geometry = new THREE.TetrahedronGeometry(size);
+                            const material = new THREE.MeshLambertMaterial({ 
+                                color: new THREE.Color().setHSL(Math.random(), 0.7, 0.5),
+                                transparent: true,
+                                opacity: 0.8
+                            });
+                            visualGeometry = new THREE.Mesh(geometry, material);
+                            visualGeometry.position.copy(center);
+                            visualGeometry.castShadow = true;
+                            visualGeometry.receiveShadow = true;
+                            
+                            this.geometryGroup.add(visualGeometry);
+                            this.updateStatus(`Added triangle mesh with ${triangles.length} triangles`);
+                            return;
+                        }
+                    }
+                    
+                    // Send geometry to server
+                    const response = await fetch(`${this.apiBase}/geometry`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            type: type,
+                            data: geometryData
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        this.geometryGroup.add(visualGeometry);
+                        this.updateStatus(`Added ${type} successfully`);
+                    } else {
+                        throw new Error(`Failed to add ${type}`);
+                    }
+                    
+                } catch (error) {
+                    this.updateStatus(`Error: ${error.message}`);
+                }
+            }
+            
+            async buildOctree() {
+                this.updateStatus('Building octree...');
+                
+                try {
+                    const response = await fetch(`${this.apiBase}/build`, {
+                        method: 'POST'
+                    });
+                    
+                    if (response.ok) {
+                        document.getElementById('pathfindBtn').disabled = false;
+                        await this.loadOctreeData();
+                        this.updateStatus('Octree built successfully');
+                    } else {
+                        throw new Error('Failed to build octree');
+                    }
+                } catch (error) {
+                    this.updateStatus(`Error: ${error.message}`);
+                }
+            }
+            
+            async loadOctreeData() {
+                try {
+                    const response = await fetch(`${this.apiBase}/octree`);
+                    if (response.ok) {
+                        this.octreeData = await response.json();
+                        if (this.showOctree) {
+                            this.visualizeOctree();
+                        }
+                    }
+                } catch (error) {
+                    console.error('Failed to load octree data:', error);
+                }
+            }
+            
+            visualizeOctree() {
+                this.octreeGroup.clear();
+                
+                if (!this.octreeData || !this.showOctree) return;
+                
+                const traverseNode = (node) => {
+                    if (!node) return;
+                    
+                    // Only visualize occupied leaf nodes
+                    if (node.is_leaf && node.is_occupied) {
+                        const size = {
+                            x: node.bounds.max.x - node.bounds.min.x,
+                            y: node.bounds.max.y - node.bounds.min.y,
+                            z: node.bounds.max.z - node.bounds.min.z
+                        };
+                        
+                        const center = {
+                            x: (node.bounds.min.x + node.bounds.max.x) / 2,
+                            y: (node.bounds.min.y + node.bounds.max.y) / 2,
+                            z: (node.bounds.min.z + node.bounds.max.z) / 2
+                        };
+                        
+                        const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
+                        const material = new THREE.MeshBasicMaterial({
+                            color: 0xff6b6b,
+                            wireframe: true,
+                            transparent: true,
+                            opacity: 0.3
+                        });
+                        
+                        const cube = new THREE.Mesh(geometry, material);
+                        cube.position.copy(center);
+                        this.octreeGroup.add(cube);
+                    }
+                    
+                    // Traverse children
+                    if (node.children) {
+                        node.children.forEach(child => traverseNode(child));
+                    }
+                };
+                
+                traverseNode(this.octreeData.root);
+            }
+            
+            async findPath() {
+                const start = {
+                    x: parseFloat(document.getElementById('startX').value),
+                    y: parseFloat(document.getElementById('startY').value),
+                    z: parseFloat(document.getElementById('startZ').value)
+                };
+                
+                const end = {
+                    x: parseFloat(document.getElementById('endX').value),
+                    y: parseFloat(document.getElementById('endY').value),
+                    z: parseFloat(document.getElementById('endZ').value)
+                };
+                
+                const stepSize = parseFloat(document.getElementById('stepSize').value);
+                
+                this.updateStatus('Finding path...');
+                
+                try {
+                    const response = await fetch(`${this.apiBase}/pathfind`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            start: start,
+                            end: end,
+                            step_size: stepSize
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        
+                        if (result.found) {
+                            this.visualizePath(result.path, start, end);
+                            this.updateStatus(`Path found! ${result.length} waypoints`);
+                        } else {
+                            this.updateStatus('No path found');
+                        }
+                    } else {
+                        throw new Error('Pathfinding request failed');
+                    }
+                } catch (error) {
+                    this.updateStatus(`Error: ${error.message}`);
+                }
+            }
+            
+            visualizePath(path, start, end) {
+                this.pathGroup.clear();
+                this.markersGroup.clear();
+                
+                if (!path || path.length === 0) return;
+                
+                // Create path line
+                const points = path.map(p => new THREE.Vector3(p.x, p.y, p.z));
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = new THREE.LineBasicMaterial({ 
+                    color: 0x00ff00,
+                    linewidth: 5
+                });
+                const line = new THREE.Line(geometry, material);
+                this.pathGroup.add(line);
+                
+                // Add waypoint markers
+                path.forEach((point, index) => {
+                    const sphereGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+                    const sphereMaterial = new THREE.MeshBasicMaterial({ 
+                        color: index === 0 ? 0x00ff00 : index === path.length - 1 ? 0xff0000 : 0xffff00
+                    });
+                    const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+                    sphere.position.set(point.x, point.y, point.z);
+                    this.markersGroup.add(sphere);
+                });
+                
+                // Add start and end markers
+                const startMarker = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.3, 16, 16),
+                    new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+                );
+                startMarker.position.set(start.x, start.y, start.z);
+                this.markersGroup.add(startMarker);
+                
+                const endMarker = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.3, 16, 16),
+                    new THREE.MeshBasicMaterial({ color: 0xff0000 })
+                );
+                endMarker.position.set(end.x, end.y, end.z);
+                this.markersGroup.add(endMarker);
+            }
+            
+            toggleOctreeVisualization() {
+                this.showOctree = !this.showOctree;
+                if (this.showOctree) {
+                    this.visualizeOctree();
+                } else {
+                    this.octreeGroup.clear();
+                }
+                
+                document.getElementById('toggleOctreeBtn').textContent = 
+                    this.showOctree ? 'Hide Octree' : 'Show Octree';
+            }
+            
+            clearScene() {
+                this.octreeGroup.clear();
+                this.geometryGroup.clear();
+                this.pathGroup.clear();
+                this.markersGroup.clear();
+                
+                document.getElementById('buildBtn').disabled = true;
+                document.getElementById('pathfindBtn').disabled = true;
+                document.getElementById('toggleOctreeBtn').textContent = 'Show Octree';
+                this.showOctree = false;
+                
+                this.updateStatus('Scene cleared');
+            }
+            
+            updateStatus(message) {
+                document.getElementById('status').textContent = message;
+                console.log(message);
+            }
+            
+            onWindowResize() {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+            
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                
+                // Add some rotation animation to geometries
+                //this.geometryGroup.children.forEach((child, index) => {
+                //    child.rotation.y += 0.005 * (index % 2 === 0 ? 1 : -1);
+                //});
+                
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+        
+        // Initialize the application
+        const app = new OctreeVisualizer();
+    </script>
+</body>
+</html>
