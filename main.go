@@ -35,9 +35,11 @@ type AddGeometryRequest struct {
 
 // 路径查找请求结构
 type PathfindRequest struct {
-	Start    octree.Vector3 `json:"start"`
-	End      octree.Vector3 `json:"end"`
-	StepSize float64        `json:"step_size"`
+	Start       octree.Vector3 `json:"start"`
+	End         octree.Vector3 `json:"end"`
+	StepSize    float64        `json:"step_size"`
+	AgentRadius float64        `json:"agent_radius,omitempty"` // Agent半径，可选
+	AgentHeight float64        `json:"agent_height,omitempty"` // Agent高度，可选
 }
 
 // 路径查找响应结构
@@ -160,6 +162,14 @@ func findPathHandler(w http.ResponseWriter, r *http.Request) {
 		pathfinder.SetStepSize(req.StepSize)
 	}
 
+	// 设置Agent（如果提供了Agent参数）
+	if req.AgentRadius > 0 && req.AgentHeight > 0 {
+		agent := octree.NewAgent(req.AgentRadius, req.AgentHeight)
+		pathfinder.SetAgent(agent)
+	} else {
+		pathfinder.SetAgent(nil) // 清除Agent，使用点检测
+	}
+
 	begTime := time.Now()
 	path := pathfinder.FindPath(req.Start, req.End)
 	endTime := time.Now()
@@ -189,7 +199,18 @@ func checkOccupiedHandler(w http.ResponseWriter, r *http.Request) {
 	z, _ := strconv.ParseFloat(r.URL.Query().Get("z"), 64)
 
 	point := octree.Vector3{X: x, Y: y, Z: z}
-	occupied := globalOctree.IsOccupied(point)
+
+	// 检查是否有Agent参数
+	agentRadius, _ := strconv.ParseFloat(r.URL.Query().Get("agent_radius"), 64)
+	agentHeight, _ := strconv.ParseFloat(r.URL.Query().Get("agent_height"), 64)
+
+	var occupied bool
+	if agentRadius > 0 && agentHeight > 0 {
+		agent := octree.NewAgent(agentRadius, agentHeight)
+		occupied = globalOctree.IsAgentOccupied(agent, point)
+	} else {
+		occupied = globalOctree.IsOccupied(point)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"occupied": occupied})

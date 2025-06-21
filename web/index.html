@@ -77,6 +77,13 @@
             flex: 1;
         }
         
+        .agent-controls {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 8px;
+        }
+        
         #status {
             background: rgba(0, 255, 0, 0.2);
             padding: 10px;
@@ -146,7 +153,29 @@
             </div>
             
             <div class="control-group">
+                <label>Agent Configuration</label>
+                <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                    <input type="checkbox" id="enableAgent" style="width: auto; margin-right: 8px;">
+                    <label for="enableAgent" style="margin: 0;">Enable Agent-based Pathfinding</label>
+                </div>
+                <div id="agentControls" class="agent-controls" style="display: none;">
+                    <div style="display: flex; gap: 5px; margin-bottom: 5px;">
+                        <input type="number" id="agentRadius" placeholder="Radius" value="0.5" step="0.1" min="0.1" max="2.0">
+                        <input type="number" id="agentHeight" placeholder="Height" value="1.8" step="0.1" min="0.1" max="5.0">
+                    </div>
+                    <small style="color: #ccc;">Radius: 0.1-2.0, Height: 0.1-5.0</small>
+                </div>
+            </div>
+            
+            <div class="control-group">
                 <button id="pathfindBtn" disabled>Find Path</button>
+            </div>
+            
+            <div class="control-group">
+                <label>Animation Speed</label>
+                <input type="range" id="animationSpeed" min="1" max="10" value="5" step="1">
+                <small style="color: #ccc;">1=Slow, 10=Fast</small>
+                <button id="stopAnimationBtn" style="margin-top: 5px; display: none;">Stop Animation</button>
             </div>
             
             <div class="control-group">
@@ -182,10 +211,17 @@
                 this.geometryGroup = new THREE.Group();
                 this.pathGroup = new THREE.Group();
                 this.markersGroup = new THREE.Group();
+                this.waypointGroup = new THREE.Group();
                 
                 this.apiBase = 'http://localhost:8080/api';
                 this.showOctree = false;
                 this.octreeData = null;
+                
+                // Animation related properties
+                this.animatingAgent = null;
+                this.currentPath = null;
+                this.animationProgress = 0;
+                this.animationDuration = 5000; // 5 seconds
                 
                 this.init();
                 this.setupEventListeners();
@@ -229,6 +265,7 @@
                 this.scene.add(this.geometryGroup);
                 this.scene.add(this.pathGroup);
                 this.scene.add(this.markersGroup);
+                this.scene.add(this.waypointGroup);
                 
                 // Add coordinate axes
                 const axesHelper = new THREE.AxesHelper(15);
@@ -299,7 +336,39 @@
                 document.getElementById('toggleOctreeBtn').addEventListener('click', () => this.toggleOctreeVisualization());
                 document.getElementById('clearBtn').addEventListener('click', () => this.clearScene());
                 
+                // Agent checkbox toggle
+                document.getElementById('enableAgent').addEventListener('change', (e) => {
+                    const agentControls = document.getElementById('agentControls');
+                    agentControls.style.display = e.target.checked ? 'block' : 'none';
+                    this.updateStartEndMarkers(); // Update visualization
+                });
+                
+                // Real-time position updates
+                ['startX', 'startY', 'startZ', 'endX', 'endY', 'endZ'].forEach(id => {
+                    document.getElementById(id).addEventListener('input', () => this.updateStartEndMarkers());
+                });
+                
+                // Real-time agent parameter updates
+                ['agentRadius', 'agentHeight'].forEach(id => {
+                    document.getElementById(id).addEventListener('input', () => this.updateStartEndMarkers());
+                });
+                
+                // Animation speed control
+                document.getElementById('animationSpeed').addEventListener('input', (e) => {
+                    const speed = parseInt(e.target.value);
+                    this.animationDuration = 10000 / speed; // Inverse relationship: higher value = faster
+                });
+                
+                // Stop animation button
+                document.getElementById('stopAnimationBtn').addEventListener('click', () => {
+                    this.stopAgentAnimation();
+                    this.updateStatus('Animation stopped by user');
+                });
+                
                 window.addEventListener('resize', () => this.onWindowResize());
+                
+                // Initialize start/end markers
+                this.updateStartEndMarkers();
             }
             
             async initializeOctree() {
@@ -576,17 +645,35 @@
                 
                 const stepSize = parseFloat(document.getElementById('stepSize').value);
                 
-                this.updateStatus('Finding path...');
+                // Build request body
+                const requestBody = {
+                    start: start,
+                    end: end,
+                    step_size: stepSize
+                };
+                
+                // Add agent parameters if enabled
+                const enableAgent = document.getElementById('enableAgent').checked;
+                if (enableAgent) {
+                    const agentRadius = parseFloat(document.getElementById('agentRadius').value);
+                    const agentHeight = parseFloat(document.getElementById('agentHeight').value);
+                    
+                    if (agentRadius > 0 && agentHeight > 0) {
+                        requestBody.agent_radius = agentRadius;
+                        requestBody.agent_height = agentHeight;
+                        this.updateStatus(`Finding path for agent (r=${agentRadius}, h=${agentHeight})...`);
+                    } else {
+                        this.updateStatus('Finding path (point-based)...');
+                    }
+                } else {
+                    this.updateStatus('Finding path (point-based)...');
+                }
                 
                 try {
                     const response = await fetch(`${this.apiBase}/pathfind`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            start: start,
-                            end: end,
-                            step_size: stepSize
-                        })
+                        body: JSON.stringify(requestBody)
                     });
                     
                     if (response.ok) {
@@ -594,7 +681,8 @@
                         
                         if (result.found) {
                             this.visualizePath(result.path, start, end);
-                            this.updateStatus(`Path found! ${result.length} waypoints`);
+                            const pathType = enableAgent && requestBody.agent_radius ? 'Agent' : 'Point';
+                            this.updateStatus(`${pathType} path found! ${result.length} waypoints`);
                         } else {
                             this.updateStatus('No path found');
                         }
@@ -606,11 +694,111 @@
                 }
             }
             
+            updateStartEndMarkers() {
+                // Clear existing start/end markers but keep waypoints
+                this.clearStartEndMarkers();
+                
+                // Get current positions
+                const start = {
+                    x: parseFloat(document.getElementById('startX').value) || 0,
+                    y: parseFloat(document.getElementById('startY').value) || 0,
+                    z: parseFloat(document.getElementById('startZ').value) || 0
+                };
+                
+                const end = {
+                    x: parseFloat(document.getElementById('endX').value) || 0,
+                    y: parseFloat(document.getElementById('endY').value) || 0,
+                    z: parseFloat(document.getElementById('endZ').value) || 0
+                };
+                
+                // Check if agent is enabled
+                const enableAgent = document.getElementById('enableAgent').checked;
+                const agentRadius = parseFloat(document.getElementById('agentRadius').value) || 0.5;
+                const agentHeight = parseFloat(document.getElementById('agentHeight').value) || 1.8;
+                
+                // Always create new markers
+                if (enableAgent && agentRadius > 0 && agentHeight > 0) {
+                    // Create capsule representations for start and end
+                    this.createAgentMarker(start, 0x00ff00, agentRadius, agentHeight, 'start');
+                    this.createAgentMarker(end, 0xff0000, agentRadius, agentHeight, 'end');
+                } else {
+                    // Create simple sphere markers
+                    this.createSimpleMarker(start, 0x00ff00, 0.3, 'start');
+                    this.createSimpleMarker(end, 0xff0000, 0.3, 'end');
+                }
+            }
+            
+            clearStartEndMarkers() {
+                // Remove only start/end markers, keep waypoints
+                const toRemove = [];
+                this.markersGroup.children.forEach(child => {
+                    if (child.userData && (child.userData.type === 'start' || child.userData.type === 'end')) {
+                        toRemove.push(child);
+                    } else if (!child.userData) {
+                        // If no userData, assume it's a start/end marker (old markers without userData)
+                        toRemove.push(child);
+                    }
+                });
+                toRemove.forEach(marker => this.markersGroup.remove(marker));
+            }
+            
+            createAgentMarker(position, color, radius, height, label) {
+                // Create capsule representation (cylinder + 2 hemispheres)
+                const group = new THREE.Group();
+                
+                // Main cylinder
+                const cylinderGeometry = new THREE.CylinderGeometry(radius, radius, height, 8);
+                const cylinderMaterial = new THREE.MeshBasicMaterial({ 
+                    color: color, 
+                    transparent: true, 
+                    opacity: 0.6,
+                    wireframe: true
+                });
+                const cylinder = new THREE.Mesh(cylinderGeometry, cylinderMaterial);
+                group.add(cylinder);
+                
+                // Top hemisphere
+                const topSphereGeometry = new THREE.SphereGeometry(radius, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+                const topSphere = new THREE.Mesh(topSphereGeometry, cylinderMaterial);
+                topSphere.position.y = height / 2;
+                group.add(topSphere);
+                
+                // Bottom hemisphere
+                const bottomSphereGeometry = new THREE.SphereGeometry(radius, 8, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+                const bottomSphere = new THREE.Mesh(bottomSphereGeometry, cylinderMaterial);
+                bottomSphere.position.y = -height / 2;
+                group.add(bottomSphere);
+                
+                // Center point marker
+                const centerMarker = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.1, 8, 8),
+                    new THREE.MeshBasicMaterial({ color: color })
+                );
+                group.add(centerMarker);
+                
+                group.position.set(position.x, position.y, position.z);
+                group.userData = { type: label };
+                this.markersGroup.add(group);
+            }
+            
+            createSimpleMarker(position, color, size, label) {
+                const marker = new THREE.Mesh(
+                    new THREE.SphereGeometry(size, 16, 16),
+                    new THREE.MeshBasicMaterial({ color: color })
+                );
+                marker.position.set(position.x, position.y, position.z);
+                marker.userData = { type: label };
+                this.markersGroup.add(marker);
+            }
+
             visualizePath(path, start, end) {
                 this.pathGroup.clear();
-                this.markersGroup.clear();
+                this.waypointGroup.clear();
                 
                 if (!path || path.length === 0) return;
+                
+                // Store current path for animation
+                this.currentPath = path;
                 
                 // Create path line
                 const points = path.map(p => new THREE.Vector3(p.x, p.y, p.z));
@@ -622,31 +810,23 @@
                 const line = new THREE.Line(geometry, material);
                 this.pathGroup.add(line);
                 
-                // Add waypoint markers
+                // Add waypoint markers to separate group
                 path.forEach((point, index) => {
-                    const sphereGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+                    const sphereGeometry = new THREE.SphereGeometry(0.08, 8, 8);
                     const sphereMaterial = new THREE.MeshBasicMaterial({ 
                         color: index === 0 ? 0x00ff00 : index === path.length - 1 ? 0xff0000 : 0xffff00
                     });
                     const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
                     sphere.position.set(point.x, point.y, point.z);
-                    this.markersGroup.add(sphere);
+                    sphere.userData = { type: 'waypoint' };
+                    this.waypointGroup.add(sphere);
                 });
                 
-                // Add start and end markers
-                const startMarker = new THREE.Mesh(
-                    new THREE.SphereGeometry(0.3, 16, 16),
-                    new THREE.MeshBasicMaterial({ color: 0x00ff00 })
-                );
-                startMarker.position.set(start.x, start.y, start.z);
-                this.markersGroup.add(startMarker);
+                // Update start and end markers with current agent settings
+                this.updateStartEndMarkers();
                 
-                const endMarker = new THREE.Mesh(
-                    new THREE.SphereGeometry(0.3, 16, 16),
-                    new THREE.MeshBasicMaterial({ color: 0xff0000 })
-                );
-                endMarker.position.set(end.x, end.y, end.z);
-                this.markersGroup.add(endMarker);
+                // Start agent animation if enabled
+                this.startAgentAnimation();
             }
             
             toggleOctreeVisualization() {
@@ -661,11 +841,146 @@
                     this.showOctree ? 'Hide Octree' : 'Show Octree';
             }
             
+            startAgentAnimation() {
+                const enableAgent = document.getElementById('enableAgent').checked;
+                if (!enableAgent || !this.currentPath || this.currentPath.length < 2) {
+                    return;
+                }
+                
+                // Stop existing animation
+                this.stopAgentAnimation();
+                
+                // Create animated agent
+                const agentRadius = parseFloat(document.getElementById('agentRadius').value) || 0.5;
+                const agentHeight = parseFloat(document.getElementById('agentHeight').value) || 1.8;
+                
+                this.animatingAgent = this.createAnimatedAgent(agentRadius, agentHeight);
+                this.scene.add(this.animatingAgent);
+                
+                // Start animation
+                this.animationProgress = 0;
+                this.animationStartTime = Date.now();
+                
+                // Show stop animation button
+                document.getElementById('stopAnimationBtn').style.display = 'block';
+                
+                this.updateStatus('Agent animation started...');
+            }
+            
+            stopAgentAnimation() {
+                if (this.animatingAgent) {
+                    this.scene.remove(this.animatingAgent);
+                    this.animatingAgent = null;
+                }
+                this.animationProgress = 0;
+                
+                // Hide stop animation button
+                document.getElementById('stopAnimationBtn').style.display = 'none';
+            }
+            
+            createAnimatedAgent(radius, height) {
+                const group = new THREE.Group();
+                
+                // Main cylinder
+                const cylinderGeometry = new THREE.CylinderGeometry(radius, radius, height, 8);
+                const cylinderMaterial = new THREE.MeshBasicMaterial({ 
+                    color: 0x0088ff, 
+                    transparent: true, 
+                    opacity: 0.8
+                });
+                const cylinder = new THREE.Mesh(cylinderGeometry, cylinderMaterial);
+                group.add(cylinder);
+                
+                // Top hemisphere
+                const topSphereGeometry = new THREE.SphereGeometry(radius, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+                const topSphere = new THREE.Mesh(topSphereGeometry, cylinderMaterial);
+                topSphere.position.y = height / 2;
+                group.add(topSphere);
+                
+                // Bottom hemisphere
+                const bottomSphereGeometry = new THREE.SphereGeometry(radius, 8, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+                const bottomSphere = new THREE.Mesh(bottomSphereGeometry, cylinderMaterial);
+                bottomSphere.position.y = -height / 2;
+                group.add(bottomSphere);
+                
+                return group;
+            }
+            
+            updateAgentAnimation() {
+                if (!this.animatingAgent || !this.currentPath || this.currentPath.length < 2) {
+                    return;
+                }
+                
+                const elapsed = Date.now() - this.animationStartTime;
+                this.animationProgress = Math.min(elapsed / this.animationDuration, 1);
+                
+                // Calculate position along path
+                const position = this.getPositionAlongPath(this.animationProgress);
+                this.animatingAgent.position.copy(position);
+                
+                // Update status
+                const percentage = Math.round(this.animationProgress * 100);
+                this.updateStatus(`Agent moving... ${percentage}%`);
+                
+                // Animation complete
+                if (this.animationProgress >= 1) {
+                    this.updateStatus('Agent reached destination!');
+                    setTimeout(() => {
+                        this.stopAgentAnimation();
+                        this.updateStatus('Animation complete. Agent ready for next path.');
+                    }, 1000);
+                }
+            }
+            
+            getPositionAlongPath(progress) {
+                if (!this.currentPath || this.currentPath.length < 2) {
+                    return new THREE.Vector3(0, 0, 0);
+                }
+                
+                // Calculate total path length
+                let totalLength = 0;
+                const segmentLengths = [];
+                for (let i = 0; i < this.currentPath.length - 1; i++) {
+                    const start = new THREE.Vector3(this.currentPath[i].x, this.currentPath[i].y, this.currentPath[i].z);
+                    const end = new THREE.Vector3(this.currentPath[i + 1].x, this.currentPath[i + 1].y, this.currentPath[i + 1].z);
+                    const length = start.distanceTo(end);
+                    segmentLengths.push(length);
+                    totalLength += length;
+                }
+                
+                // Find which segment we're in
+                const targetDistance = progress * totalLength;
+                let currentDistance = 0;
+                
+                for (let i = 0; i < segmentLengths.length; i++) {
+                    const segmentEnd = currentDistance + segmentLengths[i];
+                    
+                    if (targetDistance <= segmentEnd) {
+                        // We're in this segment
+                        const segmentProgress = (targetDistance - currentDistance) / segmentLengths[i];
+                        const start = new THREE.Vector3(this.currentPath[i].x, this.currentPath[i].y, this.currentPath[i].z);
+                        const end = new THREE.Vector3(this.currentPath[i + 1].x, this.currentPath[i + 1].y, this.currentPath[i + 1].z);
+                        
+                        return start.lerp(end, segmentProgress);
+                    }
+                    
+                    currentDistance = segmentEnd;
+                }
+                
+                // Return last point if something goes wrong
+                const lastPoint = this.currentPath[this.currentPath.length - 1];
+                return new THREE.Vector3(lastPoint.x, lastPoint.y, lastPoint.z);
+            }
+
             clearScene() {
                 this.octreeGroup.clear();
                 this.geometryGroup.clear();
                 this.pathGroup.clear();
                 this.markersGroup.clear();
+                this.waypointGroup.clear();
+                this.stopAgentAnimation();
+                
+                this.currentPath = null;
                 
                 document.getElementById('buildBtn').disabled = true;
                 document.getElementById('pathfindBtn').disabled = true;
@@ -673,6 +988,9 @@
                 this.showOctree = false;
                 
                 this.updateStatus('Scene cleared');
+                
+                // Restore start/end markers
+                setTimeout(() => this.updateStartEndMarkers(), 100);
             }
             
             updateStatus(message) {
@@ -688,6 +1006,9 @@
             
             animate() {
                 requestAnimationFrame(() => this.animate());
+                
+                // Update agent animation
+                this.updateAgentAnimation();
                 
                 // Add some rotation animation to geometries
                 //this.geometryGroup.children.forEach((child, index) => {

@@ -68,6 +68,7 @@ var directions = []struct{ dx, dy, dz int }{
 // 优化的JPS寻路器
 type OptimizedJPSPathfinder struct {
 	octree      *Octree
+	agent       *Agent // 新增：寻路的Agent
 	stepSize    float64
 	origin      Vector3 // 坐标系原点
 	openHeap    *NodeHeap
@@ -82,6 +83,7 @@ func NewOptimizedJPSPathfinder(octree *Octree, stepSize float64) *OptimizedJPSPa
 
 	return &OptimizedJPSPathfinder{
 		octree:      octree,
+		agent:       nil, // 默认没有Agent，使用点检测
 		stepSize:    stepSize,
 		origin:      octree.Root.Bounds.Min, // 使用八叉树边界作为原点
 		openHeap:    heapNodes,
@@ -89,6 +91,16 @@ func NewOptimizedJPSPathfinder(octree *Octree, stepSize float64) *OptimizedJPSPa
 		nodeCache:   make(map[int64]*OptimizedJPSNode),
 		maxJumpDist: 5, // 减少最大跳跃距离，避免过度搜索
 	}
+}
+
+// SetAgent 设置寻路Agent
+func (jps *OptimizedJPSPathfinder) SetAgent(agent *Agent) {
+	jps.agent = agent
+}
+
+// GetAgent 获取当前Agent
+func (jps *OptimizedJPSPathfinder) GetAgent() *Agent {
+	return jps.agent
 }
 
 func (jps *OptimizedJPSPathfinder) SetStepSize(stepSize float64) {
@@ -118,13 +130,24 @@ func (jps *OptimizedJPSPathfinder) isOccupied(x, y, z int) bool {
 
 	// 边界检查
 	bounds := jps.octree.Root.Bounds
-	if pos.X < bounds.Min.X || pos.X > bounds.Max.X ||
-		pos.Y < bounds.Min.Y || pos.Y > bounds.Max.Y ||
-		pos.Z < bounds.Min.Z || pos.Z > bounds.Max.Z {
-		return true // 超出边界视为占用
+	if jps.agent != nil {
+		// 如果有Agent，考虑Agent的边界
+		agentBounds := jps.agent.GetBounds(pos)
+		if agentBounds.Min.X < bounds.Min.X || agentBounds.Max.X > bounds.Max.X ||
+			agentBounds.Min.Y < bounds.Min.Y || agentBounds.Max.Y > bounds.Max.Y ||
+			agentBounds.Min.Z < bounds.Min.Z || agentBounds.Max.Z > bounds.Max.Z {
+			return true // 超出边界视为占用
+		}
+		return jps.octree.IsAgentOccupied(jps.agent, pos)
+	} else {
+		// 没有Agent时使用点检测
+		if pos.X < bounds.Min.X || pos.X > bounds.Max.X ||
+			pos.Y < bounds.Min.Y || pos.Y > bounds.Max.Y ||
+			pos.Z < bounds.Min.Z || pos.Z > bounds.Max.Z {
+			return true // 超出边界视为占用
+		}
+		return jps.octree.IsOccupied(pos)
 	}
-
-	return jps.octree.IsOccupied(pos)
 }
 
 // 完全非递归的跳点搜索
@@ -338,8 +361,16 @@ func (jps *OptimizedJPSPathfinder) hasObstacleBetween(start, end Vector3) bool {
 			Y: start.Y + (end.Y-start.Y)*t,
 			Z: start.Z + (end.Z-start.Z)*t,
 		}
-		if jps.octree.IsOccupied(pos) {
-			return true
+
+		// 使用Agent检测或点检测
+		if jps.agent != nil {
+			if jps.octree.IsAgentOccupied(jps.agent, pos) {
+				return true
+			}
+		} else {
+			if jps.octree.IsOccupied(pos) {
+				return true
+			}
 		}
 	}
 	return false

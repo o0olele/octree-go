@@ -176,6 +176,57 @@ func dot(a, b Vector3) float64 {
 	return a.X*b.X + a.Y*b.Y + a.Z*b.Z
 }
 
+// Agent 表示寻路的智能体，用胶囊体表示
+type Agent struct {
+	Radius float64 `json:"radius"` // 胶囊体半径
+	Height float64 `json:"height"` // 胶囊体高度（不包括两端的半球）
+}
+
+// NewAgent 创建新的Agent
+func NewAgent(radius, height float64) *Agent {
+	return &Agent{
+		Radius: radius,
+		Height: height,
+	}
+}
+
+// GetCapsule 根据位置获取Agent的胶囊体表示
+func (a *Agent) GetCapsule(position Vector3) Capsule {
+	// 胶囊体的轴线沿Y轴方向
+	halfHeight := a.Height / 2
+	start := Vector3{position.X, position.Y - halfHeight, position.Z}
+	end := Vector3{position.X, position.Y + halfHeight, position.Z}
+	return Capsule{
+		Start:  start,
+		End:    end,
+		Radius: a.Radius,
+	}
+}
+
+// GetBounds 获取Agent在指定位置的包围盒
+func (a *Agent) GetBounds(position Vector3) AABB {
+	return a.GetCapsule(position).GetBounds()
+}
+
+// 改进的点到线段距离计算
+func pointToLineSegmentDistance(point, lineStart, lineEnd Vector3) float64 {
+	lineVec := lineEnd.Sub(lineStart)
+	pointVec := point.Sub(lineStart)
+
+	lineLength := lineVec.Length()
+	if lineLength == 0 {
+		return point.Distance(lineStart)
+	}
+
+	// 计算投影参数t
+	t := dot(pointVec, lineVec) / dot(lineVec, lineVec)
+	t = math.Max(0, math.Min(1, t))
+
+	// 计算线段上最近点
+	closestPoint := lineStart.Add(lineVec.Scale(t))
+	return point.Distance(closestPoint)
+}
+
 // OctreeNode 八叉树节点
 type OctreeNode struct {
 	Bounds     AABB           `json:"bounds"`
@@ -280,6 +331,155 @@ func (o *Octree) Build() {
 // IsOccupied 检查指定位置是否被占用
 func (o *Octree) IsOccupied(point Vector3) bool {
 	return o.isOccupiedRecursive(o.Root, point)
+}
+
+// IsAgentOccupied 检查Agent在指定位置是否与几何体碰撞
+func (o *Octree) IsAgentOccupied(agent *Agent, position Vector3) bool {
+	if agent == nil {
+		return o.IsOccupied(position)
+	}
+
+	agentCapsule := agent.GetCapsule(position)
+	return o.isAgentOccupiedRecursive(o.Root, agentCapsule)
+}
+
+func (o *Octree) isAgentOccupiedRecursive(node *OctreeNode, agentCapsule Capsule) bool {
+	// 检查Agent的包围盒是否与节点相交
+	agentBounds := agentCapsule.GetBounds()
+	if !o.aabbIntersects(node.Bounds, agentBounds) {
+		return false
+	}
+
+	if node.IsLeaf {
+		if !node.IsOccupied {
+			return false
+		}
+		// 检查Agent胶囊体是否与节点中的几何体碰撞
+		for _, geom := range node.Geometries {
+			if o.capsuleIntersectsGeometry(agentCapsule, geom) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// 递归检查子节点
+	for _, child := range node.Children {
+		if child != nil && o.isAgentOccupiedRecursive(child, agentCapsule) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// aabbIntersects 检查两个AABB是否相交
+func (o *Octree) aabbIntersects(a, b AABB) bool {
+	return !(a.Max.X < b.Min.X || a.Min.X > b.Max.X ||
+		a.Max.Y < b.Min.Y || a.Min.Y > b.Max.Y ||
+		a.Max.Z < b.Min.Z || a.Min.Z > b.Max.Z)
+}
+
+// capsuleIntersectsGeometry 检查胶囊体是否与几何体相交
+func (o *Octree) capsuleIntersectsGeometry(capsule Capsule, geom Geometry) bool {
+	switch g := geom.(type) {
+	case Triangle:
+		return o.capsuleIntersectsTriangle(capsule, g)
+	case Box:
+		return o.capsuleIntersectsBox(capsule, g)
+	case Capsule:
+		return o.capsuleIntersectsCapsule(capsule, g)
+	default:
+		// 使用简化的包围盒检测
+		return o.aabbIntersects(capsule.GetBounds(), geom.GetBounds())
+	}
+}
+
+// capsuleIntersectsTriangle 胶囊体与三角形相交检测
+func (o *Octree) capsuleIntersectsTriangle(capsule Capsule, triangle Triangle) bool {
+	// 简化实现：检查胶囊体轴线到三角形各边的距离
+	edges := []struct{ start, end Vector3 }{
+		{triangle.A, triangle.B},
+		{triangle.B, triangle.C},
+		{triangle.C, triangle.A},
+	}
+
+	for _, edge := range edges {
+		if o.lineSegmentDistance(capsule.Start, capsule.End, edge.start, edge.end) < capsule.Radius {
+			return true
+		}
+	}
+
+	// 检查三角形顶点到胶囊体轴线的距离
+	vertices := []Vector3{triangle.A, triangle.B, triangle.C}
+	for _, vertex := range vertices {
+		if pointToLineSegmentDistance(vertex, capsule.Start, capsule.End) < capsule.Radius {
+			return true
+		}
+	}
+
+	return false
+}
+
+// capsuleIntersectsBox 胶囊体与立方体相交检测
+func (o *Octree) capsuleIntersectsBox(capsule Capsule, box Box) bool {
+	boxBounds := box.GetBounds()
+
+	// 计算胶囊体轴线上最接近立方体的点
+	closestPoint := o.closestPointOnLineSegmentToAABB(capsule.Start, capsule.End, boxBounds)
+
+	// 计算立方体上最接近该点的点
+	closestOnBox := Vector3{
+		math.Max(boxBounds.Min.X, math.Min(closestPoint.X, boxBounds.Max.X)),
+		math.Max(boxBounds.Min.Y, math.Min(closestPoint.Y, boxBounds.Max.Y)),
+		math.Max(boxBounds.Min.Z, math.Min(closestPoint.Z, boxBounds.Max.Z)),
+	}
+
+	// 检查距离是否小于胶囊体半径
+	return closestPoint.Distance(closestOnBox) < capsule.Radius
+}
+
+// capsuleIntersectsCapsule 胶囊体与胶囊体相交检测
+func (o *Octree) capsuleIntersectsCapsule(capsule1, capsule2 Capsule) bool {
+	// 计算两个线段之间的最短距离
+	distance := o.lineSegmentDistance(capsule1.Start, capsule1.End, capsule2.Start, capsule2.End)
+	return distance < (capsule1.Radius + capsule2.Radius)
+}
+
+// lineSegmentDistance 计算两个线段之间的最短距离
+func (o *Octree) lineSegmentDistance(seg1Start, seg1End, seg2Start, seg2End Vector3) float64 {
+	// 简化实现，使用点到线段距离的近似
+	dist1 := math.Min(
+		pointToLineSegmentDistance(seg1Start, seg2Start, seg2End),
+		pointToLineSegmentDistance(seg1End, seg2Start, seg2End),
+	)
+	dist2 := math.Min(
+		pointToLineSegmentDistance(seg2Start, seg1Start, seg1End),
+		pointToLineSegmentDistance(seg2End, seg1Start, seg1End),
+	)
+	return math.Min(dist1, dist2)
+}
+
+// closestPointOnLineSegmentToAABB 计算线段上最接近AABB的点
+func (o *Octree) closestPointOnLineSegmentToAABB(lineStart, lineEnd Vector3, aabb AABB) Vector3 {
+	center := aabb.Center()
+	return o.closestPointOnLineSegment(center, lineStart, lineEnd)
+}
+
+// closestPointOnLineSegment 计算线段上最接近给定点的点
+func (o *Octree) closestPointOnLineSegment(point, lineStart, lineEnd Vector3) Vector3 {
+	lineVec := lineEnd.Sub(lineStart)
+	pointVec := point.Sub(lineStart)
+
+	lineLength := lineVec.Length()
+	if lineLength == 0 {
+		return lineStart
+	}
+
+	t := dot(pointVec, lineVec) / dot(lineVec, lineVec)
+	t = math.Max(0, math.Min(1, t))
+
+	return lineStart.Add(lineVec.Scale(t))
 }
 
 func (o *Octree) isOccupiedRecursive(node *OctreeNode, point Vector3) bool {
