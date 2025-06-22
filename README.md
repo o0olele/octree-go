@@ -124,4 +124,3 @@ Access visualization at `http://localhost:8080`
 
 # Screenshots
 ![](./img/example.png)
-```
