@@ -2,6 +2,8 @@
 
 A Go implementation of an Octree spatial partitioning and pathfinding library, supporting efficient collision detection and path planning in 3D environments.
 
+![img](./img/example.png)
+
 ## Features
 
 - **Octree Space Partitioning**: Efficient 3D space segmentation and management
@@ -120,7 +122,3 @@ Access visualization at `http://localhost:8080`
 
 ### Check Occupancy
 - **GET** `/checkoccupied?x=0&y=0&z=0&agent_radius=0.5&agent_height=1.8`
-
-
-# Screenshots
-![](./img/example.png)
