@@ -20,6 +20,10 @@ func (v Vector3) Sub(other Vector3) Vector3 {
 	return Vector3{v.X - other.X, v.Y - other.Y, v.Z - other.Z}
 }
 
+func (v Vector3) Mul(s float64) Vector3 {
+	return Vector3{v.X * s, v.Y * s, v.Z * s}
+}
+
 func (v Vector3) Scale(s float64) Vector3 {
 	return Vector3{v.X * s, v.Y * s, v.Z * s}
 }
@@ -55,6 +59,12 @@ func (aabb AABB) Center() Vector3 {
 
 func (aabb AABB) Size() Vector3 {
 	return aabb.Max.Sub(aabb.Min)
+}
+
+func (aabb AABB) Intersects(other AABB) bool {
+	return aabb.Min.X <= other.Max.X && aabb.Max.X >= other.Min.X &&
+		aabb.Min.Y <= other.Max.Y && aabb.Max.Y >= other.Min.Y &&
+		aabb.Min.Z <= other.Max.Z && aabb.Max.Z >= other.Min.Z
 }
 
 // Geometry 接口定义
@@ -200,6 +210,16 @@ func (a *Agent) GetCapsule(position Vector3) Capsule {
 		Start:  start,
 		End:    end,
 		Radius: a.Radius,
+	}
+}
+
+func GetCapsuleAABB(position Vector3, radius float64, height float64) AABB {
+	halfHeight := height / 2
+	start := Vector3{position.X, position.Y - halfHeight, position.Z}
+	end := Vector3{position.X, position.Y + halfHeight, position.Z}
+	return AABB{
+		Min: Vector3{start.X - radius, start.Y - radius, start.Z - radius},
+		Max: Vector3{end.X + radius, end.Y + radius, end.Z + radius},
 	}
 }
 
