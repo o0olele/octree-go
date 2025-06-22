@@ -1,0 +1,98 @@
+body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+    background: linear-gradient(135deg, #1e3c72, #2a5298);
+}
+
+#container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+}
+
+#ui {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 100;
+    background: rgba(0, 0, 0, 0.8);
+    padding: 20px;
+    border-radius: 10px;
+    color: white;
+    min-width: 300px;
+}
+
+.control-group {
+    margin-bottom: 15px;
+}
+
+.control-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.control-group input, .control-group select, .control-group button {
+    width: 100%;
+    padding: 8px;
+    border: none;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    font-size: 14px;
+}
+
+.control-group button {
+    background: linear-gradient(45deg, #667eea, #764ba2);
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.control-group button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+}
+
+.control-group button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.coords-input {
+    display: flex;
+    gap: 5px;
+}
+
+.coords-input input {
+    width: auto;
+    flex: 1;
+}
+
+.agent-controls {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 10px;
+    border-radius: 5px;
+    margin-top: 8px;
+}
+
+#status {
+    background: rgba(0, 255, 0, 0.2);
+    padding: 10px;
+    border-radius: 5px;
+    margin-top: 15px;
+    font-size: 12px;
+}
+
+#instructions {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 15px;
+    border-radius: 10px;
+    max-width: 400px;
+    font-size: 14px;
+}
