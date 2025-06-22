@@ -93,8 +93,6 @@ occupied := tree.IsAgentOccupied(agent, position)
 ## 运行测试
 
 ```bash
-# 运行Agent寻路测试
-go test -v -run TestAgentPathfinding
 
 # 编译并运行Web服务器
 go build -o octree-server .
