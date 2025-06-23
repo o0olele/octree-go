@@ -182,6 +182,100 @@ func (c Capsule) GetType() string {
 	return "capsule"
 }
 
+// ConvexMesh 凸包网格几何体
+type ConvexMesh struct {
+	Vertices []Vector3 `json:"vertices"` // 凸包的顶点
+	Faces    [][]int   `json:"faces"`    // 面，每个面是顶点索引的数组
+}
+
+func (cm ConvexMesh) GetBounds() AABB {
+	if len(cm.Vertices) == 0 {
+		return AABB{Vector3{0, 0, 0}, Vector3{0, 0, 0}}
+	}
+
+	min := cm.Vertices[0]
+	max := cm.Vertices[0]
+
+	for _, vertex := range cm.Vertices {
+		if vertex.X < min.X {
+			min.X = vertex.X
+		}
+		if vertex.Y < min.Y {
+			min.Y = vertex.Y
+		}
+		if vertex.Z < min.Z {
+			min.Z = vertex.Z
+		}
+		if vertex.X > max.X {
+			max.X = vertex.X
+		}
+		if vertex.Y > max.Y {
+			max.Y = vertex.Y
+		}
+		if vertex.Z > max.Z {
+			max.Z = vertex.Z
+		}
+	}
+
+	return AABB{min, max}
+}
+
+func (cm ConvexMesh) IntersectsAABB(aabb AABB) bool {
+	bounds := cm.GetBounds()
+	return bounds.Intersects(aabb)
+}
+
+func (cm ConvexMesh) ContainsPoint(point Vector3) bool {
+	// 使用分离轴定理(SAT)的简化版本来检测点是否在凸包内
+	// 对于凸包，如果点在所有面的内侧，则点在凸包内
+	for _, face := range cm.Faces {
+		if len(face) < 3 {
+			continue // 跳过无效面
+		}
+
+		// 获取面的三个顶点来计算法向量
+		v0 := cm.Vertices[face[0]]
+		v1 := cm.Vertices[face[1]]
+		v2 := cm.Vertices[face[2]]
+
+		// 计算面的法向量（假设顶点按逆时针顺序排列）
+		edge1 := v1.Sub(v0)
+		edge2 := v2.Sub(v0)
+		normal := cross(edge1, edge2)
+
+		// 标准化法向量
+		length := normal.Length()
+		if length == 0 {
+			continue // 退化面
+		}
+		normal = normal.Scale(1.0 / length)
+
+		// 计算点到面的距离
+		toPoint := point.Sub(v0)
+		distance := dot(toPoint, normal)
+
+		// 如果点在面的外侧（距离为正），则点不在凸包内
+		if distance > 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (cm ConvexMesh) GetType() string {
+	return "convex_mesh"
+}
+
+// cross 计算两个向量的叉积
+func cross(a, b Vector3) Vector3 {
+	return Vector3{
+		a.Y*b.Z - a.Z*b.Y,
+		a.Z*b.X - a.X*b.Z,
+		a.X*b.Y - a.Y*b.X,
+	}
+}
+
 func dot(a, b Vector3) float64 {
 	return a.X*b.X + a.Y*b.Y + a.Z*b.Z
 }
@@ -409,6 +503,8 @@ func (o *Octree) capsuleIntersectsGeometry(capsule Capsule, geom Geometry) bool 
 		return o.capsuleIntersectsBox(capsule, g)
 	case Capsule:
 		return o.capsuleIntersectsCapsule(capsule, g)
+	case ConvexMesh:
+		return o.capsuleIntersectsConvexMesh(capsule, g)
 	default:
 		// 使用简化的包围盒检测
 		return o.aabbIntersects(capsule.GetBounds(), geom.GetBounds())
@@ -464,6 +560,126 @@ func (o *Octree) capsuleIntersectsCapsule(capsule1, capsule2 Capsule) bool {
 	// 计算两个线段之间的最短距离
 	distance := o.lineSegmentDistance(capsule1.Start, capsule1.End, capsule2.Start, capsule2.End)
 	return distance < (capsule1.Radius + capsule2.Radius)
+}
+
+// capsuleIntersectsConvexMesh 胶囊体与凸包网格相交检测
+func (o *Octree) capsuleIntersectsConvexMesh(capsule Capsule, mesh ConvexMesh) bool {
+	// 首先检查包围盒相交
+	if !o.aabbIntersects(capsule.GetBounds(), mesh.GetBounds()) {
+		return false
+	}
+
+	// 检查胶囊体的起点和终点是否在凸包内
+	if mesh.ContainsPoint(capsule.Start) || mesh.ContainsPoint(capsule.End) {
+		return true
+	}
+
+	// 检查胶囊体轴线是否与凸包的任何面相交，并且距离小于半径
+	for _, face := range mesh.Faces {
+		if len(face) < 3 {
+			continue
+		}
+
+		// 检查胶囊轴线到面上各边的距离
+		for i := 0; i < len(face); i++ {
+			v1 := mesh.Vertices[face[i]]
+			v2 := mesh.Vertices[face[(i+1)%len(face)]]
+
+			// 计算胶囊轴线到面边的最短距离
+			distance := o.lineSegmentDistance(capsule.Start, capsule.End, v1, v2)
+			if distance < capsule.Radius {
+				return true
+			}
+		}
+
+		// 检查胶囊轴线上的点到面的距离
+		if o.capsuleAxisIntersectsFace(capsule, mesh, face) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// capsuleAxisIntersectsFace 检查胶囊轴线是否与面相交且距离小于半径
+func (o *Octree) capsuleAxisIntersectsFace(capsule Capsule, mesh ConvexMesh, face []int) bool {
+	if len(face) < 3 {
+		return false
+	}
+
+	// 获取面的三个顶点计算法向量
+	v0 := mesh.Vertices[face[0]]
+	v1 := mesh.Vertices[face[1]]
+	v2 := mesh.Vertices[face[2]]
+
+	// 计算面的法向量
+	edge1 := v1.Sub(v0)
+	edge2 := v2.Sub(v0)
+	normal := cross(edge1, edge2)
+
+	length := normal.Length()
+	if length == 0 {
+		return false // 退化面
+	}
+	normal = normal.Scale(1.0 / length)
+
+	// 计算胶囊轴线上多个点到面的距离
+	axisLength := capsule.End.Sub(capsule.Start).Length()
+	if axisLength == 0 {
+		// 胶囊退化为球体
+		distance := math.Abs(dot(capsule.Start.Sub(v0), normal))
+		return distance < capsule.Radius
+	}
+
+	// 沿轴线采样多个点
+	samples := int(math.Max(3, axisLength*2)) // 至少3个采样点
+	for i := 0; i <= samples; i++ {
+		t := float64(i) / float64(samples)
+		point := capsule.Start.Add(capsule.End.Sub(capsule.Start).Scale(t))
+
+		// 计算点到面的距离
+		distance := math.Abs(dot(point.Sub(v0), normal))
+		if distance < capsule.Radius {
+			// 还需要检查点的投影是否在面的边界内
+			if o.pointProjectionInFace(point, mesh, face, normal) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// pointProjectionInFace 检查点在面上的投影是否在面的边界内
+func (o *Octree) pointProjectionInFace(point Vector3, mesh ConvexMesh, face []int, normal Vector3) bool {
+	if len(face) < 3 {
+		return false
+	}
+
+	// 将点投影到面上
+	v0 := mesh.Vertices[face[0]]
+	toPoint := point.Sub(v0)
+	distance := dot(toPoint, normal)
+	projectedPoint := point.Sub(normal.Scale(distance))
+
+	// 使用重心坐标或者射线法检查投影点是否在多边形内
+	// 这里使用简化的方法：检查点是否在所有边的内侧
+	for i := 0; i < len(face); i++ {
+		v1 := mesh.Vertices[face[i]]
+		v2 := mesh.Vertices[face[(i+1)%len(face)]]
+
+		// 计算边向量和从边起点到投影点的向量
+		edge := v2.Sub(v1)
+		toProj := projectedPoint.Sub(v1)
+
+		// 计算叉积来判断点在边的哪一侧
+		crossProd := cross(edge, toProj)
+		if dot(crossProd, normal) < 0 {
+			return false // 点在边的外侧
+		}
+	}
+
+	return true
 }
 
 // lineSegmentDistance 计算两个线段之间的最短距离

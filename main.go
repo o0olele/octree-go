@@ -125,6 +125,14 @@ func addGeometryHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		geom = capsule
 
+	case "convex_mesh":
+		var convexMesh octree.ConvexMesh
+		if err := json.Unmarshal(req.Data, &convexMesh); err != nil {
+			http.Error(w, "Invalid convex mesh data", http.StatusBadRequest)
+			return
+		}
+		geom = convexMesh
+
 	default:
 		http.Error(w, "Unknown geometry type", http.StatusBadRequest)
 		return
