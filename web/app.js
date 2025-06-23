@@ -453,6 +453,79 @@ class OctreeVisualizer {
                     this.updateBoundsDisplay();
                     return;
                 }
+                
+            } else if (type === 'convex_mesh') {
+                // Create a random convex mesh (cube-like shape with random vertices)
+                const center = {
+                    x: (Math.random() - 0.5) * 16,
+                    y: (Math.random() - 0.5) * 16,
+                    z: (Math.random() - 0.5) * 16
+                };
+                const size = Math.random() * 2 + 1;
+
+                // Create vertices for a cube with some random displacement
+                const vertices = [
+                    { x: center.x - size + Math.random() * 0.5, y: center.y - size + Math.random() * 0.5, z: center.z - size + Math.random() * 0.5 }, // 0
+                    { x: center.x + size + Math.random() * 0.5, y: center.y - size + Math.random() * 0.5, z: center.z - size + Math.random() * 0.5 }, // 1
+                    { x: center.x + size + Math.random() * 0.5, y: center.y + size + Math.random() * 0.5, z: center.z - size + Math.random() * 0.5 }, // 2
+                    { x: center.x - size + Math.random() * 0.5, y: center.y + size + Math.random() * 0.5, z: center.z - size + Math.random() * 0.5 }, // 3
+                    { x: center.x - size + Math.random() * 0.5, y: center.y - size + Math.random() * 0.5, z: center.z + size + Math.random() * 0.5 }, // 4
+                    { x: center.x + size + Math.random() * 0.5, y: center.y - size + Math.random() * 0.5, z: center.z + size + Math.random() * 0.5 }, // 5
+                    { x: center.x + size + Math.random() * 0.5, y: center.y + size + Math.random() * 0.5, z: center.z + size + Math.random() * 0.5 }, // 6
+                    { x: center.x - size + Math.random() * 0.5, y: center.y + size + Math.random() * 0.5, z: center.z + size + Math.random() * 0.5 }  // 7
+                ];
+
+                // Define faces (each face is a list of vertex indices)
+                const faces = [
+                    [0, 1, 2, 3], // front face
+                    [5, 4, 7, 6], // back face
+                    [4, 0, 3, 7], // left face
+                    [1, 5, 6, 2], // right face
+                    [3, 2, 6, 7], // top face
+                    [4, 5, 1, 0]  // bottom face
+                ];
+
+                geometryData = {
+                    vertices: vertices,
+                    faces: faces
+                };
+
+                // Create visual representation using BufferGeometry
+                const geometry = new THREE.BufferGeometry();
+                const positions = [];
+                const indices = [];
+
+                // Add vertices
+                vertices.forEach(v => {
+                    positions.push(v.x, v.y, v.z);
+                });
+
+                // Convert faces to triangles
+                let indexOffset = 0;
+                faces.forEach(face => {
+                    // Triangulate face (assuming quad faces)
+                    if (face.length === 4) {
+                        // Split quad into two triangles
+                        indices.push(face[0], face[1], face[2]);
+                        indices.push(face[0], face[2], face[3]);
+                    } else if (face.length === 3) {
+                        // Triangle face
+                        indices.push(face[0], face[1], face[2]);
+                    }
+                });
+
+                geometry.setIndex(indices);
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                geometry.computeVertexNormals();
+
+                const material = new THREE.MeshLambertMaterial({
+                    color: new THREE.Color().setHSL(Math.random(), 0.7, 0.5),
+                    transparent: true,
+                    opacity: 0.8
+                });
+                visualGeometry = new THREE.Mesh(geometry, material);
+                visualGeometry.castShadow = true;
+                visualGeometry.receiveShadow = true;
             }
 
             // Send geometry to server
