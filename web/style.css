@@ -18,10 +18,10 @@ body {
     left: 20px;
     z-index: 100;
     background: rgba(0, 0, 0, 0.8);
-    padding: 20px;
+    padding: 10px;
     border-radius: 10px;
     color: white;
-    min-width: 300px;
+    min-width: 260px;
 }
 
 .control-group {
@@ -34,13 +34,33 @@ body {
     font-weight: bold;
 }
 
-.control-group input, .control-group select, .control-group button {
+.control-group input {
     width: 100%;
     padding: 8px;
     border: none;
     border-radius: 5px;
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
+    background: rgba(130, 126, 126, 0.1);
+    color: rgb(124, 124, 124);
+    font-size: 14px;
+}
+
+.control-group button {
+    width: 100%;
+    padding: 8px;
+    border: none;
+    border-radius: 5px;
+    background: rgba(130, 126, 126, 0.1);
+    color: rgb(32, 21, 21);
+    font-size: 14px;
+}
+
+.control-group select {
+    width: 100%;
+    padding: 8px;
+    border: none;
+    border-radius: 5px;
+    background: rgba(130, 126, 126, 0.1);
+    color: rgb(124, 124, 124);
     font-size: 14px;
 }
 
@@ -88,7 +108,7 @@ body {
 #instructions {
     position: absolute;
     bottom: 20px;
-    left: 20px;
+    right: 20px;
     background: rgba(0, 0, 0, 0.8);
     color: white;
     padding: 15px;
