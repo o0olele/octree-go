@@ -8,7 +8,7 @@ A Go implementation of an Octree spatial partitioning and pathfinding library, s
 
 - **Octree Space Partitioning**: Efficient 3D space segmentation and management
 - **Agent Pathfinding**: Supports agent navigation with capsule-shaped agents (considers agent size)
-- **JPS Pathfinding**: Optimized Jump Point Search algorithm for efficient pathfinding
+- **A* Pathfinding**: A* algorithm for efficient pathfinding
 - **Multi-shape Support**: Geometric primitives including triangles, boxes, and capsules
 - **Web API**: RESTful API endpoints for easy integration
 - **Real-time Visualization**: Built-in web interface for visualizing octrees and paths
@@ -58,7 +58,7 @@ tree.AddGeometry(box)
 tree.Build()
 
 // Create pathfinder
-pathfinder := octree.NewOptimizedJPSPathfinder(tree, 0.5)
+pathfinder := octree.NewAStarPathfinder(tree, 0.5)
 
 // Point pathfinding
 start := octree.Vector3{X: -8, Y: 0, Z: 0}

@@ -18,7 +18,6 @@ import (
 
 // 全局八叉树实例
 var globalOctree *octree.Octree
-var jpsPathfinder *octree.OptimizedJPSPathfinder
 var astarPathfinder *octree.AStarPathfinder
 var nodeBasedAstarPathfinder *octree.NodeBasedAStarPathfinder
 
@@ -56,7 +55,7 @@ type PathfindRequest struct {
 	AgentRadius float64        `json:"agent_radius,omitempty"` // Agent半径，可选（向后兼容）
 	AgentHeight float64        `json:"agent_height,omitempty"` // Agent高度，可选（向后兼容）
 	Agent       *octree.Agent  `json:"agent,omitempty"`        // Agent对象，可选
-	Algorithm   string         `json:"algorithm,omitempty"`    // 算法选择: "jps", "astar", "astar-node"
+	Algorithm   string         `json:"algorithm,omitempty"`    // 算法选择:  "astar", "astar-node"
 }
 
 // 路径查找响应结构
@@ -77,9 +76,8 @@ func initOctreeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	globalOctree = octree.NewOctree(req.Bounds, req.MaxDepth, req.MinSize)
-	jpsPathfinder = octree.NewOptimizedJPSPathfinder(globalOctree, req.MinSize)
 	astarPathfinder = octree.NewAStarPathfinder(globalOctree, req.MinSize)
-	currentPathfinder = jpsPathfinder // 默认使用JPS
+	currentPathfinder = astarPathfinder // 默认使用A*
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "initialized"})
@@ -193,8 +191,6 @@ func findPathHandler(w http.ResponseWriter, r *http.Request) {
 	// 选择算法
 	if req.Algorithm != "" {
 		switch req.Algorithm {
-		case "jps":
-			currentPathfinder = jpsPathfinder
 		case "astar":
 			currentPathfinder = astarPathfinder
 		case "astar-node":
@@ -204,7 +200,7 @@ func findPathHandler(w http.ResponseWriter, r *http.Request) {
 				currentPathfinder = astarPathfinder
 			}
 		default:
-			currentPathfinder = jpsPathfinder // 默认使用JPS
+			currentPathfinder = astarPathfinder // 默认使用A*
 		}
 	}
 
@@ -302,8 +298,6 @@ func debugHandler(w http.ResponseWriter, r *http.Request) {
 	// 选择算法
 	if req.Algorithm != "" {
 		switch req.Algorithm {
-		case "jps":
-			currentPathfinder = jpsPathfinder
 		case "astar":
 			currentPathfinder = astarPathfinder
 		case "astar-node":
@@ -313,7 +307,7 @@ func debugHandler(w http.ResponseWriter, r *http.Request) {
 				currentPathfinder = astarPathfinder
 			}
 		default:
-			currentPathfinder = jpsPathfinder // 默认使用JPS
+			currentPathfinder = astarPathfinder // 默认使用A*
 		}
 	}
 
@@ -349,11 +343,6 @@ func debugHandler(w http.ResponseWriter, r *http.Request) {
 		"startValid": !globalOctree.IsOccupied(req.Start),
 		"endValid":   !globalOctree.IsOccupied(req.End),
 		"gridDiff":   []int{endGridX - startGridX, endGridY - startGridY, endGridZ - startGridZ},
-	}
-
-	// 只有JPS算法才有maxJumpDist
-	if jpsTyped, ok := currentPathfinder.(*octree.OptimizedJPSPathfinder); ok {
-		debugInfo["maxJumpDist"] = jpsTyped.GetMaxJumpDist()
 	}
 
 	if currentPathfinder.GetAgent() != nil {
