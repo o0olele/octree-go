@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"fmt"
 	"math"
+	"time"
 )
 
 // PathNode 寻路节点，对应八叉树中的空白叶子节点
@@ -113,18 +114,36 @@ type NodeBasedAStarPathfinder struct {
 	agent    *Agent
 	stepSize float64
 	graph    *PathGraph
+
+	// Morton编码优化
+	mortonSortedNodes []MortonNodePair
+	mortonResolution  uint32
+
+	// 漏斗算法
+	funnelAlgorithm *FunnelAlgorithm
+}
+
+// MortonNodePair Morton编码和节点的配对
+type MortonNodePair struct {
+	Morton MortonCode
+	Node   *PathNode
 }
 
 // NewNodeBasedAStarPathfinder 创建基于节点的A*寻路器
 func NewNodeBasedAStarPathfinder(octree *Octree, stepSize float64) *NodeBasedAStarPathfinder {
 	pathfinder := &NodeBasedAStarPathfinder{
-		octree:   octree,
-		stepSize: stepSize,
-		graph:    NewPathGraph(),
+		octree:           octree,
+		stepSize:         stepSize,
+		graph:            NewPathGraph(),
+		mortonResolution: 1024,                    // 10位精度
+		funnelAlgorithm:  NewFunnelAlgorithm(0.5), // 默认Agent半径
 	}
 
 	// 构建寻路图
 	pathfinder.buildGraph()
+
+	// 构建Morton索引
+	pathfinder.buildMortonIndex()
 
 	return pathfinder
 }
@@ -370,6 +389,10 @@ func (nba *NodeBasedAStarPathfinder) getNodeMarginPoints(bounds AABB) []Vector3 
 // SetAgent 设置寻路Agent
 func (nba *NodeBasedAStarPathfinder) SetAgent(agent *Agent) {
 	nba.agent = agent
+	// 更新漏斗算法的Agent半径
+	if agent != nil {
+		nba.funnelAlgorithm = NewFunnelAlgorithm(agent.Radius)
+	}
 }
 
 // GetAgent 获取当前Agent
@@ -398,8 +421,10 @@ func (nba *NodeBasedAStarPathfinder) ToGridCoord(pos Vector3) (int, int, int) {
 // FindPath 使用基于节点的A*算法寻找路径
 func (nba *NodeBasedAStarPathfinder) FindPath(start, end Vector3) []Vector3 {
 	// 找到起点和终点最近的空白节点
+	startTime := time.Now()
 	startNode := nba.findClosestNode(start)
 	endNode := nba.findClosestNode(end)
+	fmt.Printf("FindPath 时间: %v\n", time.Since(startTime))
 
 	if startNode == nil || endNode == nil {
 		return nil
@@ -411,13 +436,18 @@ func (nba *NodeBasedAStarPathfinder) FindPath(start, end Vector3) []Vector3 {
 	}
 
 	// 运行A*算法
+	startTime = time.Now()
 	path := nba.astar(startNode, endNode)
+	fmt.Printf("Astar 时间: %v\n", time.Since(startTime))
 	if path == nil {
 		return nil
 	}
 
+	startTime = time.Now()
 	// 将节点路径转换为世界坐标路径
-	return nba.convertToWorldPath(path, start, end)
+	worldPath := nba.convertToWorldPath(path, start, end)
+	fmt.Printf("ConvertToWorldPath 时间: %v\n", time.Since(startTime))
+	return worldPath
 }
 
 // findClosestNode 找到最接近给定位置的空白节点
@@ -428,7 +458,12 @@ func (nba *NodeBasedAStarPathfinder) findClosestNode(pos Vector3) *PathNode {
 		return containingNode
 	}
 
-	// 如果没有找到包含该位置的节点，使用空间查询找最近的
+	// 使用Morton编码优化的空间查询
+	if len(nba.mortonSortedNodes) > 0 {
+		return nba.findClosestNodeMorton(pos)
+	}
+
+	// 回退到原始方法
 	return nba.findClosestNodeSpatial(pos)
 }
 
@@ -655,33 +690,75 @@ func (nba *NodeBasedAStarPathfinder) convertToWorldPath(nodePath []*PathNode, st
 		return nil
 	}
 
-	path := []Vector3{start}
+	startTime := time.Now()
 
-	// 添加所有节点的中心点，确保路径安全
-	for _, node := range nodePath {
-		centerPoint := node.Center
+	// 对于短路径，使用传统方法
+	if len(nodePath) <= 3 {
+		path := []Vector3{start}
 
-		// 如果有Agent，确保Agent可以安全通过节点中心
-		if nba.agent != nil && nba.octree.IsAgentOccupied(nba.agent, centerPoint) {
-			// 尝试在节点边界内找到安全点
-			safePoint := nba.findSafePointInNode(node)
-			if safePoint != nil {
-				centerPoint = *safePoint
+		// 添加所有节点的中心点，确保路径安全
+		for _, node := range nodePath {
+			centerPoint := node.Center
+
+			// 如果有Agent，确保Agent可以安全通过节点中心
+			if nba.agent != nil && nba.octree.IsAgentOccupied(nba.agent, centerPoint) {
+				// 尝试在节点边界内找到安全点
+				safePoint := nba.findSafePointInNode(node)
+				if safePoint != nil {
+					centerPoint = *safePoint
+				}
 			}
+
+			path = append(path, centerPoint)
 		}
 
-		path = append(path, centerPoint)
+		path = append(path, end)
+		smoothed := nba.SmoothPath(path)
+		validated := nba.validatePathSafety(smoothed)
+		fmt.Printf("ConvertToWorldPath 时间: %v (传统方法)\n", time.Since(startTime))
+
+		if len(validated) < 2 {
+			return nba.validatePathSafety(path)
+		}
+		return validated
 	}
 
-	path = append(path, end)
+	// 对于长路径，使用漏斗算法
+	funnelPath := nba.funnelAlgorithm.SmoothPath(nodePath)
 
-	// 使用保守的路径平滑策略
-	smoothed := nba.SmoothPath(path)
+	// 如果漏斗算法失败，回退到传统方法
+	if len(funnelPath) == 0 {
+		path := []Vector3{start}
+
+		for _, node := range nodePath {
+			centerPoint := node.Center
+			if nba.agent != nil && nba.octree.IsAgentOccupied(nba.agent, centerPoint) {
+				safePoint := nba.findSafePointInNode(node)
+				if safePoint != nil {
+					centerPoint = *safePoint
+				}
+			}
+			path = append(path, centerPoint)
+		}
+
+		path = append(path, end)
+		funnelPath = path
+	} else {
+		// 确保起点和终点正确
+		if len(funnelPath) > 0 {
+			funnelPath[0] = start
+			funnelPath[len(funnelPath)-1] = end
+		}
+	}
+
+	// 后处理：轻度平滑和验证
+	smoothed := nba.SmoothPath(funnelPath)
 	validated := nba.validatePathSafety(smoothed)
 
-	// 如果平滑后的路径不安全，返回原始路径
+	fmt.Printf("ConvertToWorldPath 时间: %v (漏斗算法)\n", time.Since(startTime))
+
 	if len(validated) < 2 {
-		return nba.validatePathSafety(path)
+		return nba.validatePathSafety(funnelPath)
 	}
 
 	return validated
@@ -872,4 +949,96 @@ func (nba *NodeBasedAStarPathfinder) ToPathGraphData() *PathGraphData {
 		Nodes: nodes,
 		Edges: edges,
 	}
+}
+
+// buildMortonIndex 构建基于Morton编码的空间索引
+func (nba *NodeBasedAStarPathfinder) buildMortonIndex() {
+	// 为所有节点计算Morton编码
+	nba.mortonSortedNodes = make([]MortonNodePair, 0, len(nba.graph.Nodes))
+
+	for _, node := range nba.graph.Nodes {
+		morton := Vector3ToMorton(node.Center, nba.octree.Root.Bounds, nba.mortonResolution)
+		nba.mortonSortedNodes = append(nba.mortonSortedNodes, MortonNodePair{
+			Morton: morton,
+			Node:   node,
+		})
+	}
+
+	// 按Morton编码排序
+	nba.sortNodesByMorton()
+}
+
+// sortNodesByMorton 按Morton编码排序节点
+func (nba *NodeBasedAStarPathfinder) sortNodesByMorton() {
+	// 使用快速排序按Morton编码排序
+	for i := 0; i < len(nba.mortonSortedNodes)-1; i++ {
+		for j := i + 1; j < len(nba.mortonSortedNodes); j++ {
+			if nba.mortonSortedNodes[i].Morton > nba.mortonSortedNodes[j].Morton {
+				nba.mortonSortedNodes[i], nba.mortonSortedNodes[j] = nba.mortonSortedNodes[j], nba.mortonSortedNodes[i]
+			}
+		}
+	}
+}
+
+// findClosestNodeMorton 使用Morton编码快速找到最近的节点
+func (nba *NodeBasedAStarPathfinder) findClosestNodeMorton(pos Vector3) *PathNode {
+	if len(nba.mortonSortedNodes) == 0 {
+		return nil
+	}
+
+	// 计算目标位置的Morton编码
+	targetMorton := Vector3ToMorton(pos, nba.octree.Root.Bounds, nba.mortonResolution)
+
+	// 二分查找最接近的Morton编码
+	left, right := 0, len(nba.mortonSortedNodes)-1
+	bestIndex := 0
+
+	for left <= right {
+		mid := (left + right) / 2
+		if nba.mortonSortedNodes[mid].Morton <= targetMorton {
+			bestIndex = mid
+			left = mid + 1
+		} else {
+			right = mid - 1
+		}
+	}
+
+	// 检查前后几个候选节点，找到实际距离最近的
+	candidates := nba.getMortonCandidates(bestIndex, 10)
+
+	var closestNode *PathNode
+	minDistance := math.Inf(1)
+
+	for _, candidate := range candidates {
+		distance := pos.Distance(candidate.Center)
+		if distance < minDistance {
+			// 如果有Agent，检查Agent是否能放置在节点中心
+			if nba.agent != nil && nba.octree.IsAgentOccupied(nba.agent, candidate.Center) {
+				continue
+			}
+			minDistance = distance
+			closestNode = candidate
+		}
+	}
+
+	return closestNode
+}
+
+// getMortonCandidates 获取Morton索引附近的候选节点
+func (nba *NodeBasedAStarPathfinder) getMortonCandidates(centerIndex, count int) []*PathNode {
+	candidates := make([]*PathNode, 0, count)
+
+	// 从中心向两边扩展
+	for i := 0; i < count && (centerIndex-i >= 0 || centerIndex+i < len(nba.mortonSortedNodes)); i++ {
+		// 向左扩展
+		if centerIndex-i >= 0 {
+			candidates = append(candidates, nba.mortonSortedNodes[centerIndex-i].Node)
+		}
+		// 向右扩展（避免重复添加中心节点）
+		if i > 0 && centerIndex+i < len(nba.mortonSortedNodes) {
+			candidates = append(candidates, nba.mortonSortedNodes[centerIndex+i].Node)
+		}
+	}
+
+	return candidates
 }
