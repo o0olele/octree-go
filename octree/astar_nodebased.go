@@ -422,6 +422,121 @@ func (nba *NodeBasedAStarPathfinder) FindPath(start, end Vector3) []Vector3 {
 
 // findClosestNode 找到最接近给定位置的空白节点
 func (nba *NodeBasedAStarPathfinder) findClosestNode(pos Vector3) *PathNode {
+	// 首先尝试直接找到包含该位置的节点
+	containingNode := nba.findContainingNode(pos)
+	if containingNode != nil {
+		return containingNode
+	}
+
+	// 如果没有找到包含该位置的节点，使用空间查询找最近的
+	return nba.findClosestNodeSpatial(pos)
+}
+
+// findContainingNode 找到包含给定位置的节点
+func (nba *NodeBasedAStarPathfinder) findContainingNode(pos Vector3) *PathNode {
+	// 从根节点开始搜索
+	octreeNode := nba.findContainingOctreeNode(nba.octree.Root, pos)
+	if octreeNode != nil {
+		if pathNode, exists := nba.graph.Nodes[octreeNode]; exists {
+			// 如果有Agent，检查Agent是否能放置在这个位置
+			if nba.agent != nil && nba.octree.IsAgentOccupied(nba.agent, pos) {
+				return nil
+			}
+			return pathNode
+		}
+	}
+	return nil
+}
+
+// findContainingOctreeNode 在八叉树中找到包含位置的叶子节点
+func (nba *NodeBasedAStarPathfinder) findContainingOctreeNode(node *OctreeNode, pos Vector3) *OctreeNode {
+	if node == nil || !node.Bounds.Contains(pos) {
+		return nil
+	}
+
+	if node.IsLeaf {
+		if !node.IsOccupied {
+			return node
+		}
+		return nil
+	}
+
+	// 递归搜索子节点
+	for _, child := range node.Children {
+		if child != nil {
+			result := nba.findContainingOctreeNode(child, pos)
+			if result != nil {
+				return result
+			}
+		}
+	}
+
+	return nil
+}
+
+// findClosestNodeSpatial 使用空间查询找到最近的节点
+func (nba *NodeBasedAStarPathfinder) findClosestNodeSpatial(pos Vector3) *PathNode {
+	var closestNode *PathNode
+	minDistance := math.Inf(1)
+
+	// 使用广度优先搜索，从最可能的区域开始
+	candidates := nba.getSpatialCandidates(pos, 10) // 获取最近的10个候选节点
+
+	for _, node := range candidates {
+		distance := pos.Distance(node.Center)
+		if distance < minDistance {
+			// 如果有Agent，检查Agent是否能放置在节点中心
+			if nba.agent != nil && nba.octree.IsAgentOccupied(nba.agent, node.Center) {
+				continue
+			}
+			minDistance = distance
+			closestNode = node
+		}
+	}
+
+	// 如果候选节点中没有找到合适的，回退到全局搜索
+	if closestNode == nil {
+		return nba.findClosestNodeBruteForce(pos)
+	}
+
+	return closestNode
+}
+
+// getSpatialCandidates 获取空间上最近的候选节点
+func (nba *NodeBasedAStarPathfinder) getSpatialCandidates(pos Vector3, maxCandidates int) []*PathNode {
+	type nodeDistance struct {
+		node     *PathNode
+		distance float64
+	}
+
+	candidates := make([]nodeDistance, 0)
+
+	// 收集所有节点的距离信息
+	for _, node := range nba.graph.Nodes {
+		distance := pos.Distance(node.Center)
+		candidates = append(candidates, nodeDistance{node, distance})
+	}
+
+	// 按距离排序
+	for i := 0; i < len(candidates)-1; i++ {
+		for j := i + 1; j < len(candidates); j++ {
+			if candidates[i].distance > candidates[j].distance {
+				candidates[i], candidates[j] = candidates[j], candidates[i]
+			}
+		}
+	}
+
+	// 返回最近的候选节点
+	result := make([]*PathNode, 0, maxCandidates)
+	for i := 0; i < len(candidates) && i < maxCandidates; i++ {
+		result = append(result, candidates[i].node)
+	}
+
+	return result
+}
+
+// findClosestNodeBruteForce 暴力搜索最近节点（备用方法）
+func (nba *NodeBasedAStarPathfinder) findClosestNodeBruteForce(pos Vector3) *PathNode {
 	var closestNode *PathNode
 	minDistance := math.Inf(1)
 
@@ -462,7 +577,7 @@ func (nba *NodeBasedAStarPathfinder) astar(startNode, endNode *PathNode) []*Path
 		node.HCost = 0
 		node.FCost = math.Inf(1)
 		node.Parent = nil
-		node.HeapIndex = -1 // 重要：初始化堆索引
+		node.HeapIndex = -1
 	}
 
 	startNode.GCost = 0
@@ -504,7 +619,6 @@ func (nba *NodeBasedAStarPathfinder) astar(startNode, endNode *PathNode) []*Path
 				neighbor.HCost = nba.heuristic(neighbor, endNode)
 				neighbor.CalculateFCost()
 
-				// 如果不在开放列表中，添加它
 				if neighbor.HeapIndex == -1 {
 					heap.Push(openHeap, neighbor)
 				} else {
