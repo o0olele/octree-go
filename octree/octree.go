@@ -93,17 +93,164 @@ func (t Triangle) GetBounds() AABB {
 }
 
 func (t Triangle) IntersectsAABB(aabb AABB) bool {
-	// 简化的三角形-AABB相交测试
+	// 首先进行快速包围盒检测
 	bounds := t.GetBounds()
-	return !(bounds.Max.X < aabb.Min.X || bounds.Min.X > aabb.Max.X ||
-		bounds.Max.Y < aabb.Min.Y || bounds.Min.Y > aabb.Max.Y ||
-		bounds.Max.Z < aabb.Min.Z || bounds.Min.Z > aabb.Max.Z)
+	if !bounds.Intersects(aabb) {
+		return false
+	}
+
+	// 对于简单情况，如果三角形完全在AABB内，直接返回true
+	if aabb.Contains(t.A) && aabb.Contains(t.B) && aabb.Contains(t.C) {
+		return true
+	}
+
+	// 使用Separating Axis Theorem (SAT) 进行精确检测
+	// 将AABB转换为中心点和半尺寸
+	center := aabb.Center()
+	halfSize := aabb.Size().Scale(0.5)
+
+	// 将三角形顶点转换为相对于AABB中心的坐标
+	v0 := t.A.Sub(center)
+	v1 := t.B.Sub(center)
+	v2 := t.C.Sub(center)
+
+	// 计算三角形的边向量
+	f0 := v1.Sub(v0) // edge 0
+	f1 := v2.Sub(v1) // edge 1
+	f2 := v0.Sub(v2) // edge 2
+
+	// 测试三角形的法向量
+	normal := cross(f0, f1)
+	if normal.Length() > 1e-10 {
+		if !t.testSeparatingAxis(normal, v0, v1, v2, halfSize) {
+			return false
+		}
+	}
+
+	// 测试AABB的3个面法向量
+	aabbAxes := []Vector3{
+		{1, 0, 0},
+		{0, 1, 0},
+		{0, 0, 1},
+	}
+
+	for _, axis := range aabbAxes {
+		if !t.testSeparatingAxis(axis, v0, v1, v2, halfSize) {
+			return false
+		}
+	}
+
+	// 测试9个轴（3个AABB面法向量 × 3个三角形边向量的叉积）
+	crossAxes := []Vector3{
+		// 轴 u0 x f0, u0 x f1, u0 x f2
+		Vector3{0, -f0.Z, f0.Y},
+		Vector3{0, -f1.Z, f1.Y},
+		Vector3{0, -f2.Z, f2.Y},
+		// 轴 u1 x f0, u1 x f1, u1 x f2
+		Vector3{f0.Z, 0, -f0.X},
+		Vector3{f1.Z, 0, -f1.X},
+		Vector3{f2.Z, 0, -f2.X},
+		// 轴 u2 x f0, u2 x f1, u2 x f2
+		Vector3{-f0.Y, f0.X, 0},
+		Vector3{-f1.Y, f1.X, 0},
+		Vector3{-f2.Y, f2.X, 0},
+	}
+
+	for _, axis := range crossAxes {
+		// 跳过零向量
+		if axis.Length() < 1e-10 {
+			continue
+		}
+		if !t.testSeparatingAxis(axis, v0, v1, v2, halfSize) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// testSeparatingAxis 测试给定轴上的投影是否分离
+func (t Triangle) testSeparatingAxis(axis Vector3, v0, v1, v2, halfSize Vector3) bool {
+	// 计算三角形顶点在轴上的投影
+	p0 := dot(v0, axis)
+	p1 := dot(v1, axis)
+	p2 := dot(v2, axis)
+
+	// 找到三角形投影的最小值和最大值
+	triMin := math.Min(math.Min(p0, p1), p2)
+	triMax := math.Max(math.Max(p0, p1), p2)
+
+	// 计算AABB在轴上的投影半径
+	r := math.Abs(halfSize.X*axis.X) + math.Abs(halfSize.Y*axis.Y) + math.Abs(halfSize.Z*axis.Z)
+
+	// 检查是否分离
+	return !(triMax < -r || triMin > r)
 }
 
 func (t Triangle) ContainsPoint(point Vector3) bool {
-	// 简化的点在三角形内测试
 	bounds := t.GetBounds()
 	return bounds.Contains(point)
+
+	// 首先检查点是否在三角形所在的平面上
+	if !t.isPointOnTrianglePlane(point) {
+		return false
+	}
+
+	// 使用重心坐标检测点是否在三角形内
+	return t.isPointInTriangle(point)
+}
+
+// isPointOnTrianglePlane 检查点是否在三角形所在的平面上（允许一定的误差）
+func (t Triangle) isPointOnTrianglePlane(point Vector3) bool {
+	// 计算三角形的法向量
+	edge1 := t.B.Sub(t.A)
+	edge2 := t.C.Sub(t.A)
+	normal := cross(edge1, edge2)
+
+	// 如果三角形退化（面积为0），使用包围盒检测
+	if normal.Length() < 1e-10 {
+		bounds := t.GetBounds()
+		return bounds.Contains(point)
+	}
+
+	// 标准化法向量
+	normal = normal.Scale(1.0 / normal.Length())
+
+	// 计算点到平面的距离
+	toPoint := point.Sub(t.A)
+	distance := math.Abs(dot(toPoint, normal))
+
+	// 允许小的误差（例如，由于浮点精度问题）
+	const tolerance = 1e-6
+	return distance < tolerance
+}
+
+// isPointInTriangle 使用重心坐标检测点是否在三角形内
+func (t Triangle) isPointInTriangle(point Vector3) bool {
+	// 计算向量
+	v0 := t.C.Sub(t.A)
+	v1 := t.B.Sub(t.A)
+	v2 := point.Sub(t.A)
+
+	// 计算点积
+	dot00 := dot(v0, v0)
+	dot01 := dot(v0, v1)
+	dot02 := dot(v0, v2)
+	dot11 := dot(v1, v1)
+	dot12 := dot(v1, v2)
+
+	// 计算重心坐标
+	denom := dot00*dot11 - dot01*dot01
+	if math.Abs(denom) < 1e-10 {
+		return false // 退化三角形
+	}
+
+	invDenom := 1.0 / denom
+	u := (dot11*dot02 - dot01*dot12) * invDenom
+	v := (dot00*dot12 - dot01*dot02) * invDenom
+
+	// 检查点是否在三角形内
+	return (u >= 0) && (v >= 0) && (u+v <= 1)
 }
 
 func (t Triangle) GetType() string {

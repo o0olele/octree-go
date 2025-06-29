@@ -2,6 +2,7 @@ package octree
 
 import (
 	"container/heap"
+	"fmt"
 	"math"
 )
 
@@ -167,19 +168,28 @@ func (nba *NodeBasedAStarPathfinder) collectEmptyLeaves(node *OctreeNode) []*Oct
 
 // buildConnections 建立节点之间的连接
 func (nba *NodeBasedAStarPathfinder) buildConnections(nodes []*OctreeNode) {
+	totalConnections := 0
+	totalChecks := 0
+
 	for i, nodeA := range nodes {
 		pathNodeA := nba.graph.Nodes[nodeA]
 
 		for j := i + 1; j < len(nodes); j++ {
 			nodeB := nodes[j]
 			pathNodeB := nba.graph.Nodes[nodeB]
+			totalChecks++
 
 			// 检查两个节点是否相邻（边界相交或接触）
 			if nba.areNodesAdjacent(nodeA, nodeB) {
 				nba.graph.AddEdge(pathNodeA, pathNodeB)
+				totalConnections++
 			}
 		}
 	}
+
+	// 输出调试信息
+	fmt.Printf("PathGraph建立连接: 检查了 %d 对节点, 建立了 %d 个连接\n", totalChecks, totalConnections)
+	fmt.Printf("节点总数: %d, 边总数: %d\n", len(nba.graph.Nodes), len(nba.graph.Edges))
 }
 
 // areNodesAdjacent 检查两个节点是否相邻且连通
@@ -199,56 +209,48 @@ func (nba *NodeBasedAStarPathfinder) areNodesAdjacent(nodeA, nodeB *OctreeNode) 
 	maxSizeA := math.Max(math.Max(sizeA.X, sizeA.Y), sizeA.Z)
 	maxSizeB := math.Max(math.Max(sizeB.X, sizeB.Y), sizeB.Z)
 
-	// 非常严格的距离阈值检查 - 只允许真正相邻的节点连接
-	threshold := (maxSizeA + maxSizeB) * 0.6 // 更加严格的阈值
+	// 放宽距离阈值检查 - 允许更多的相邻节点连接
+	threshold := (maxSizeA + maxSizeB) * 0.8 // 放宽阈值从0.6到0.8
 	if distance > threshold {
 		return false
 	}
 
-	// 首先检查节点是否真的相邻（边界接触或重叠）
+	// 更宽松的边界检查
 	if !boundsA.Intersects(boundsB) {
-		// 如果边界不相交，检查是否非常接近
-		minDistance := math.Min(maxSizeA, maxSizeB) * 0.1
-		if distance > minDistance {
+		// 计算两个边界框之间的最小距离
+		minDistance := nba.calculateAABBDistance(boundsA, boundsB)
+		// 允许小的间隙，特别是对于不同大小的节点
+		allowedGap := math.Min(maxSizeA, maxSizeB) * 0.2 // 增加允许的间隙
+		if minDistance > allowedGap {
 			return false
 		}
 	}
 
-	// 严格的路径清晰度检查
-	if !nba.isPathClear(centerA, centerB) {
+	// 路径清晰度检查 - 使用更宽松的采样
+	if !nba.isPathClearRelaxed(centerA, centerB) {
 		return false
 	}
 
-	// 检查多个关键点之间的连通性
-	// 只有当大多数关键路径都畅通时才认为节点相邻
-	testPoints := []Vector3{
-		centerA, centerB,
-		// 边界中点
-		{(boundsA.Min.X + boundsA.Max.X) / 2, centerA.Y, centerA.Z},
-		{(boundsB.Min.X + boundsB.Max.X) / 2, centerB.Y, centerB.Z},
-		{centerA.X, (boundsA.Min.Y + boundsA.Max.Y) / 2, centerA.Z},
-		{centerB.X, (boundsB.Min.Y + boundsB.Max.Y) / 2, centerB.Z},
-	}
-
-	// 检查关键点之间的连通性
-	clearConnections := 0
-	totalConnections := 0
-
-	for i := 0; i < len(testPoints); i += 2 {
-		if i+1 < len(testPoints) {
-			totalConnections++
-			if nba.isPathClear(testPoints[i], testPoints[i+1]) {
-				clearConnections++
-			}
-		}
-	}
-
-	// 要求所有关键连接都畅通
-	return clearConnections == totalConnections
+	return true
 }
 
-// isPathClear 检查两个点之间的路径是否畅通无阻
-func (nba *NodeBasedAStarPathfinder) isPathClear(start, end Vector3) bool {
+// calculateAABBDistance 计算两个AABB之间的最小距离
+func (nba *NodeBasedAStarPathfinder) calculateAABBDistance(aabb1, aabb2 AABB) float64 {
+	// 如果相交，距离为0
+	if aabb1.Intersects(aabb2) {
+		return 0.0
+	}
+
+	// 计算每个轴上的距离
+	dx := math.Max(0, math.Max(aabb1.Min.X-aabb2.Max.X, aabb2.Min.X-aabb1.Max.X))
+	dy := math.Max(0, math.Max(aabb1.Min.Y-aabb2.Max.Y, aabb2.Min.Y-aabb1.Max.Y))
+	dz := math.Max(0, math.Max(aabb1.Min.Z-aabb2.Max.Z, aabb2.Min.Z-aabb1.Max.Z))
+
+	return math.Sqrt(dx*dx + dy*dy + dz*dz)
+}
+
+// isPathClearRelaxed 使用更宽松的参数检查路径是否畅通
+func (nba *NodeBasedAStarPathfinder) isPathClearRelaxed(start, end Vector3) bool {
 	// 计算方向向量和距离
 	direction := end.Sub(start)
 	distance := direction.Length()
@@ -260,16 +262,19 @@ func (nba *NodeBasedAStarPathfinder) isPathClear(start, end Vector3) bool {
 	// 标准化方向向量
 	direction = direction.Scale(1.0 / distance)
 
-	// 使用更密集的采样，确保不会错过障碍物
-	stepSize := math.Min(nba.stepSize*0.25, 0.1) // 更小的步长
+	// 使用较少的采样点，提高连通性
+	stepSize := math.Min(nba.stepSize*0.5, 0.2) // 增加步长，减少采样密度
 	steps := int(math.Ceil(distance / stepSize))
 
-	// 确保至少有足够的采样点
-	if steps < 10 {
-		steps = 10
+	// 确保有合理的采样点数量
+	if steps < 5 {
+		steps = 5
+	}
+	if steps > 20 { // 限制最大采样点数量
+		steps = 20
 	}
 
-	// 沿着路径进行密集采样检测
+	// 沿着路径进行采样检测
 	for i := 0; i <= steps; i++ {
 		t := float64(i) / float64(steps)
 		samplePoint := start.Add(direction.Scale(distance * t))
@@ -279,15 +284,57 @@ func (nba *NodeBasedAStarPathfinder) isPathClear(start, end Vector3) bool {
 			return false
 		}
 
-		// 如果有Agent，还需要检查Agent碰撞
+		// 如果有Agent，还需要检查Agent碰撞，但使用稍微小一点的Agent
 		if nba.agent != nil {
-			if nba.octree.IsAgentOccupied(nba.agent, samplePoint) {
+			// 创建一个稍微小一点的Agent进行检测，增加连通性
+			relaxedAgent := &Agent{
+				Radius: nba.agent.Radius * 0.9, // 减小10%
+				Height: nba.agent.Height * 0.9, // 减小10%
+			}
+			if nba.octree.IsAgentOccupied(relaxedAgent, samplePoint) {
 				return false
 			}
 		}
 	}
 
 	return true
+}
+
+// isPathClear 检查两个点之间的路径是否畅通无阻（向后兼容方法）
+func (nba *NodeBasedAStarPathfinder) isPathClear(start, end Vector3) bool {
+	return nba.isPathClearRelaxed(start, end)
+}
+
+// debugNodeAdjacency 调试两个节点的相邻性检测
+func (nba *NodeBasedAStarPathfinder) debugNodeAdjacency(nodeA, nodeB *OctreeNode) {
+	boundsA := nodeA.Bounds
+	boundsB := nodeB.Bounds
+	centerA := boundsA.Center()
+	centerB := boundsB.Center()
+	distance := centerA.Distance(centerB)
+
+	sizeA := boundsA.Size()
+	sizeB := boundsB.Size()
+	maxSizeA := math.Max(math.Max(sizeA.X, sizeA.Y), sizeA.Z)
+	maxSizeB := math.Max(math.Max(sizeB.X, sizeB.Y), sizeB.Z)
+
+	threshold := (maxSizeA + maxSizeB) * 0.8
+	boundsIntersect := boundsA.Intersects(boundsB)
+	minDistance := nba.calculateAABBDistance(boundsA, boundsB)
+	allowedGap := math.Min(maxSizeA, maxSizeB) * 0.2
+	pathClear := nba.isPathClearRelaxed(centerA, centerB)
+
+	fmt.Printf("节点相邻性调试:\n")
+	fmt.Printf("  中心距离: %.3f, 阈值: %.3f, 通过: %v\n", distance, threshold, distance <= threshold)
+	fmt.Printf("  边界相交: %v\n", boundsIntersect)
+	if !boundsIntersect {
+		fmt.Printf("  最小距离: %.3f, 允许间隙: %.3f, 通过: %v\n", minDistance, allowedGap, minDistance <= allowedGap)
+	}
+	fmt.Printf("  路径畅通: %v\n", pathClear)
+	fmt.Printf("  最终结果: %v\n", nba.areNodesAdjacent(nodeA, nodeB))
+	fmt.Printf("  节点A中心: (%.2f, %.2f, %.2f), 大小: %.2f\n", centerA.X, centerA.Y, centerA.Z, maxSizeA)
+	fmt.Printf("  节点B中心: (%.2f, %.2f, %.2f), 大小: %.2f\n", centerB.X, centerB.Y, centerB.Z, maxSizeB)
+	fmt.Println()
 }
 
 // getNodeMarginPoints 获取节点边界的采样点
@@ -424,7 +471,7 @@ func (nba *NodeBasedAStarPathfinder) astar(startNode, endNode *PathNode) []*Path
 
 	heap.Push(openHeap, startNode)
 
-	maxIterations := 10000
+	maxIterations := 20000
 	iterations := 0
 
 	for openHeap.Len() > 0 && iterations < maxIterations {
@@ -651,4 +698,64 @@ func (nba *NodeBasedAStarPathfinder) SmoothPath(path []Vector3) []Vector3 {
 func (nba *NodeBasedAStarPathfinder) hasObstacleBetween(start, end Vector3) bool {
 	// 使用isPathClear的反向结果，保持一致性
 	return !nba.isPathClear(start, end)
+}
+
+// GetPathGraph 获取路径图数据，用于可视化
+func (nba *NodeBasedAStarPathfinder) GetPathGraph() *PathGraph {
+	return nba.graph
+}
+
+// PathGraphData 用于JSON序列化的路径图数据结构
+type PathGraphData struct {
+	Nodes []PathNodeData `json:"nodes"`
+	Edges []PathEdgeData `json:"edges"`
+}
+
+// PathNodeData 用于JSON序列化的路径节点数据
+type PathNodeData struct {
+	ID     int     `json:"id"`
+	Center Vector3 `json:"center"`
+	Bounds AABB    `json:"bounds"`
+}
+
+// PathEdgeData 用于JSON序列化的路径边数据
+type PathEdgeData struct {
+	NodeAID int     `json:"node_a_id"`
+	NodeBID int     `json:"node_b_id"`
+	Cost    float64 `json:"cost"`
+}
+
+// ToPathGraphData 将PathGraph转换为可序列化的数据结构
+func (nba *NodeBasedAStarPathfinder) ToPathGraphData() *PathGraphData {
+	if nba.graph == nil {
+		return &PathGraphData{
+			Nodes: []PathNodeData{},
+			Edges: []PathEdgeData{},
+		}
+	}
+
+	// 转换节点数据
+	nodes := make([]PathNodeData, 0, len(nba.graph.Nodes))
+	for _, node := range nba.graph.Nodes {
+		nodes = append(nodes, PathNodeData{
+			ID:     node.ID,
+			Center: node.Center,
+			Bounds: node.Bounds,
+		})
+	}
+
+	// 转换边数据
+	edges := make([]PathEdgeData, 0, len(nba.graph.Edges))
+	for _, edge := range nba.graph.Edges {
+		edges = append(edges, PathEdgeData{
+			NodeAID: edge.NodeA.ID,
+			NodeBID: edge.NodeB.ID,
+			Cost:    edge.Cost,
+		})
+	}
+
+	return &PathGraphData{
+		Nodes: nodes,
+		Edges: edges,
+	}
 }
