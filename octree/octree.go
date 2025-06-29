@@ -143,17 +143,17 @@ func (t Triangle) IntersectsAABB(aabb AABB) bool {
 	// 测试9个轴（3个AABB面法向量 × 3个三角形边向量的叉积）
 	crossAxes := []Vector3{
 		// 轴 u0 x f0, u0 x f1, u0 x f2
-		Vector3{0, -f0.Z, f0.Y},
-		Vector3{0, -f1.Z, f1.Y},
-		Vector3{0, -f2.Z, f2.Y},
+		{0, -f0.Z, f0.Y},
+		{0, -f1.Z, f1.Y},
+		{0, -f2.Z, f2.Y},
 		// 轴 u1 x f0, u1 x f1, u1 x f2
-		Vector3{f0.Z, 0, -f0.X},
-		Vector3{f1.Z, 0, -f1.X},
-		Vector3{f2.Z, 0, -f2.X},
+		{f0.Z, 0, -f0.X},
+		{f1.Z, 0, -f1.X},
+		{f2.Z, 0, -f2.X},
 		// 轴 u2 x f0, u2 x f1, u2 x f2
-		Vector3{-f0.Y, f0.X, 0},
-		Vector3{-f1.Y, f1.X, 0},
-		Vector3{-f2.Y, f2.X, 0},
+		{-f0.Y, f0.X, 0},
+		{-f1.Y, f1.X, 0},
+		{-f2.Y, f2.X, 0},
 	}
 
 	for _, axis := range crossAxes {
