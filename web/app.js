@@ -7,13 +7,16 @@ class OctreeVisualizer {
         this.octreeGroup = new THREE.Group();
         this.geometryGroup = new THREE.Group();
         this.pathGroup = new THREE.Group();
+        this.pathGraphGroup = new THREE.Group(); // For PathGraph visualization
         this.markersGroup = new THREE.Group();
         this.waypointGroup = new THREE.Group();
         this.gltfGroup = new THREE.Group(); // For GLTF models
 
         this.apiBase = window.location.origin + '/api';
         this.showOctree = false;
+        this.showPathGraph = false; // PathGraph visibility state
         this.octreeData = null;
+        this.pathGraphData = null; // PathGraph data
 
         // GLTF Loader
         this.gltfLoader = new THREE.GLTFLoader();
@@ -73,6 +76,7 @@ class OctreeVisualizer {
         this.scene.add(this.octreeGroup);
         this.scene.add(this.geometryGroup);
         this.scene.add(this.pathGroup);
+        this.scene.add(this.pathGraphGroup);
         this.scene.add(this.markersGroup);
         this.scene.add(this.waypointGroup);
         this.scene.add(this.gltfGroup);
@@ -88,54 +92,8 @@ class OctreeVisualizer {
 
     setupControls() {
         // Simple orbit controls implementation
-        let isMouseDown = false;
-        let mouseX = 0, mouseY = 0;
-        let targetRotationX = 0, targetRotationY = 0;
-        let rotationX = 0, rotationY = 0;
-
-        this.renderer.domElement.addEventListener('mousedown', (event) => {
-            isMouseDown = true;
-            mouseX = event.clientX;
-            mouseY = event.clientY;
-        });
-
-        this.renderer.domElement.addEventListener('mouseup', () => {
-            isMouseDown = false;
-        });
-
-        this.renderer.domElement.addEventListener('mousemove', (event) => {
-            if (!isMouseDown) return;
-
-            const deltaX = event.clientX - mouseX;
-            const deltaY = event.clientY - mouseY;
-
-            targetRotationY += deltaX * 0.01;
-            targetRotationX += deltaY * 0.01;
-
-            mouseX = event.clientX;
-            mouseY = event.clientY;
-        });
-
-        this.renderer.domElement.addEventListener('wheel', (event) => {
-            const distance = this.camera.position.length();
-            const factor = event.deltaY > 0 ? 1.1 : 0.9;
-            this.camera.position.multiplyScalar(factor);
-        });
-
-        // Update camera rotation
-        const updateCamera = () => {
-            rotationX += (targetRotationX - rotationX) * 0.1;
-            rotationY += (targetRotationY - rotationY) * 0.1;
-
-            const distance = this.camera.position.length();
-            this.camera.position.x = distance * Math.sin(rotationY) * Math.cos(rotationX);
-            this.camera.position.y = distance * Math.sin(rotationX);
-            this.camera.position.z = distance * Math.cos(rotationY) * Math.cos(rotationX);
-            this.camera.lookAt(0, 0, 0);
-
-            requestAnimationFrame(updateCamera);
-        };
-        updateCamera();
+        this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+        
     }
 
     setupEventListeners() {
@@ -144,6 +102,7 @@ class OctreeVisualizer {
         document.getElementById('buildBtn').addEventListener('click', () => this.buildOctree());
         document.getElementById('pathfindBtn').addEventListener('click', () => this.findPath());
         document.getElementById('toggleOctreeBtn').addEventListener('click', () => this.toggleOctreeVisualization());
+        document.getElementById('togglePathGraphBtn').addEventListener('click', () => this.togglePathGraphVisualization());
         document.getElementById('clearBtn').addEventListener('click', () => this.clearScene());
 
         // GLTF related events
@@ -562,6 +521,7 @@ class OctreeVisualizer {
             if (response.ok) {
                 document.getElementById('pathfindBtn').disabled = false;
                 await this.loadOctreeData();
+                await this.loadPathGraphData(); // Load PathGraph data
                 this.updateStatus('Octree built successfully');
             } else {
                 throw new Error('Failed to build octree');
@@ -1005,18 +965,21 @@ class OctreeVisualizer {
         this.octreeGroup.clear();
         this.geometryGroup.clear();
         this.pathGroup.clear();
+        this.pathGraphGroup.clear();
         this.markersGroup.clear();
         this.waypointGroup.clear();
         this.gltfGroup.clear(); // Clear GLTF models
         this.stopAgentAnimation();
 
         this.currentPath = null;
+        this.pathGraphData = null; // Clear PathGraph data
         this.loadedModels = []; // Clear loaded models array
 
         document.getElementById('buildBtn').disabled = true;
         document.getElementById('pathfindBtn').disabled = true;
         document.getElementById('toggleOctreeBtn').textContent = 'Show Octree';
         this.showOctree = false;
+        this.showPathGraph = false; // Reset PathGraph visibility state
         
         // Reset button states
         document.getElementById('initBtn').style.backgroundColor = '';
@@ -1234,30 +1197,136 @@ class OctreeVisualizer {
     }
 
     updateBoundsDisplay() {
-        const bounds = this.calculateSceneBounds();
         const boundsInfo = document.getElementById('boundsInfo');
         const boundsText = document.getElementById('boundsText');
         
-        // Check if we have any geometry
-        let hasGeometry = false;
-        this.gltfGroup.traverse((child) => {
-            if (child.isMesh && child.geometry) hasGeometry = true;
-        });
-        this.geometryGroup.traverse((child) => {
-            if (child.isMesh) hasGeometry = true;
-        });
-        
-        if (hasGeometry) {
+        if (this.sceneBounds.hasGeometry) {
+            const size = {
+                x: this.sceneBounds.max.x - this.sceneBounds.min.x,
+                y: this.sceneBounds.max.y - this.sceneBounds.min.y,
+                z: this.sceneBounds.max.z - this.sceneBounds.min.z
+            };
+            
+            boundsText.innerHTML = `
+                Min: (${this.sceneBounds.min.x.toFixed(1)}, ${this.sceneBounds.min.y.toFixed(1)}, ${this.sceneBounds.min.z.toFixed(1)})<br>
+                Max: (${this.sceneBounds.max.x.toFixed(1)}, ${this.sceneBounds.max.y.toFixed(1)}, ${this.sceneBounds.max.z.toFixed(1)})<br>
+                Size: ${size.x.toFixed(1)} × ${size.y.toFixed(1)} × ${size.z.toFixed(1)}
+            `;
             boundsInfo.style.display = 'block';
-            const minStr = `Min: [${bounds.min.x.toFixed(1)}, ${bounds.min.y.toFixed(1)}, ${bounds.min.z.toFixed(1)}]`;
-            const maxStr = `Max: [${bounds.max.x.toFixed(1)}, ${bounds.max.y.toFixed(1)}, ${bounds.max.z.toFixed(1)}]`;
-            const sizeX = bounds.max.x - bounds.min.x;
-            const sizeY = bounds.max.y - bounds.min.y;
-            const sizeZ = bounds.max.z - bounds.min.z;
-            const sizeStr = `Size: [${sizeX.toFixed(1)}, ${sizeY.toFixed(1)}, ${sizeZ.toFixed(1)}]`;
-            boundsText.innerHTML = `${minStr}<br>${maxStr}<br>${sizeStr}`;
         } else {
+            boundsText.textContent = 'No geometries loaded';
             boundsInfo.style.display = 'none';
+        }
+    }
+
+    // PathGraph related methods
+    async loadPathGraphData() {
+        try {
+            const response = await fetch(`${this.apiBase}/pathgraph`);
+            if (response.ok) {
+                this.pathGraphData = await response.json();
+                console.log('PathGraph data loaded:', this.pathGraphData);
+                if (this.showPathGraph) {
+                    this.visualizePathGraph();
+                }
+            } else {
+                console.warn('Failed to load PathGraph data - node-based pathfinder may not be available');
+                this.pathGraphData = null;
+            }
+        } catch (error) {
+            console.error('Failed to load PathGraph data:', error);
+            this.pathGraphData = null;
+        }
+    }
+
+    visualizePathGraph() {
+        this.pathGraphGroup.clear();
+
+        if (!this.pathGraphData || !this.showPathGraph) return;
+
+        const { nodes, edges } = this.pathGraphData;
+
+        // Create a map for quick node lookup
+        const nodeMap = new Map();
+        
+        // Visualize nodes
+        nodes.forEach(node => {
+            nodeMap.set(node.id, node);
+            
+            // Create node visualization (small sphere)
+            const nodeGeometry = new THREE.SphereGeometry(0.1, 8, 6);
+            const nodeMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ff00,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            const nodeMesh = new THREE.Mesh(nodeGeometry, nodeMaterial);
+            nodeMesh.position.set(node.center.x, node.center.y, node.center.z);
+            this.pathGraphGroup.add(nodeMesh);
+
+            // Optionally visualize node bounds (wireframe boxes)
+            const boundsSize = {
+                x: node.bounds.max.x - node.bounds.min.x,
+                y: node.bounds.max.y - node.bounds.min.y,
+                z: node.bounds.max.z - node.bounds.min.z
+            };
+
+            const boundsGeometry = new THREE.BoxGeometry(boundsSize.x, boundsSize.y, boundsSize.z);
+            const boundsMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ff00,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.2
+            });
+
+            const boundsMesh = new THREE.Mesh(boundsGeometry, boundsMaterial);
+            boundsMesh.position.set(node.center.x, node.center.y, node.center.z);
+            this.pathGraphGroup.add(boundsMesh);
+        });
+
+        // Visualize edges
+        edges.forEach(edge => {
+            const nodeA = nodeMap.get(edge.node_a_id);
+            const nodeB = nodeMap.get(edge.node_b_id);
+            
+            if (nodeA && nodeB) {
+                // Create line geometry for edge
+                const points = [
+                    new THREE.Vector3(nodeA.center.x, nodeA.center.y, nodeA.center.z),
+                    new THREE.Vector3(nodeB.center.x, nodeB.center.y, nodeB.center.z)
+                ];
+                
+                const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+                const lineMaterial = new THREE.LineBasicMaterial({
+                    color: 0x0088ff,
+                    transparent: true,
+                    opacity: 0.6,
+                    linewidth: 2
+                });
+                
+                const line = new THREE.Line(lineGeometry, lineMaterial);
+                this.pathGraphGroup.add(line);
+            }
+        });
+
+        console.log(`PathGraph visualization: ${nodes.length} nodes, ${edges.length} edges`);
+    }
+
+    togglePathGraphVisualization() {
+        this.showPathGraph = !this.showPathGraph;
+        
+        if (this.showPathGraph) {
+            if (this.pathGraphData) {
+                this.visualizePathGraph();
+                this.updateStatus('PathGraph visualization enabled');
+            } else {
+                this.updateStatus('PathGraph data not available - build octree first');
+                this.showPathGraph = false;
+            }
+        } else {
+            this.pathGraphGroup.clear();
+            this.updateStatus('PathGraph visualization disabled');
         }
     }
 }
