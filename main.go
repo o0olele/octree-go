@@ -357,6 +357,19 @@ func debugHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(debugInfo)
 }
 
+// 获取路径图数据
+func getPathGraphHandler(w http.ResponseWriter, r *http.Request) {
+	if nodeBasedAstarPathfinder == nil {
+		http.Error(w, "Node-based pathfinder not initialized", http.StatusBadRequest)
+		return
+	}
+
+	pathGraphData := nodeBasedAstarPathfinder.ToPathGraphData()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(pathGraphData)
+}
+
 // 批量添加三角形mesh
 func addMeshHandler(w http.ResponseWriter, r *http.Request) {
 	if globalOctree == nil {
@@ -399,6 +412,7 @@ func main() {
 	api.HandleFunc("/pathfind", findPathHandler).Methods("POST")
 	api.HandleFunc("/occupied", checkOccupiedHandler).Methods("GET")
 	api.HandleFunc("/debug", debugHandler).Methods("POST")
+	api.HandleFunc("/pathgraph", getPathGraphHandler).Methods("GET")
 
 	// 静态文件路由
 	r.PathPrefix("/").Handler(http.HandlerFunc(staticFileHandler))
