@@ -4,6 +4,9 @@ import (
 	"container/heap"
 	"fmt"
 	"math"
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -131,6 +134,11 @@ type MortonNodePair struct {
 
 // NewNodeBasedAStarPathfinder 创建基于节点的A*寻路器
 func NewNodeBasedAStarPathfinder(octree *Octree, stepSize float64) *NodeBasedAStarPathfinder {
+	return NewNodeBasedAStarPathfinderWithParallel(octree, stepSize, false)
+}
+
+// NewNodeBasedAStarPathfinderWithParallel 创建基于节点的A*寻路器，可选择是否使用并行构建
+func NewNodeBasedAStarPathfinderWithParallel(octree *Octree, stepSize float64, useParallel bool) *NodeBasedAStarPathfinder {
 	pathfinder := &NodeBasedAStarPathfinder{
 		octree:           octree,
 		stepSize:         stepSize,
@@ -140,7 +148,7 @@ func NewNodeBasedAStarPathfinder(octree *Octree, stepSize float64) *NodeBasedASt
 	}
 
 	// 构建寻路图
-	pathfinder.buildGraph()
+	pathfinder.buildGraphWithMode(useParallel)
 
 	// 构建Morton索引
 	pathfinder.buildMortonIndex()
@@ -150,6 +158,16 @@ func NewNodeBasedAStarPathfinder(octree *Octree, stepSize float64) *NodeBasedASt
 
 // buildGraph 构建寻路图
 func (nba *NodeBasedAStarPathfinder) buildGraph() {
+	nba.buildGraphWithMode(false) // 默认使用串行版本
+}
+
+// buildGraphParallel 使用并行版本构建寻路图
+func (nba *NodeBasedAStarPathfinder) buildGraphParallel() {
+	nba.buildGraphWithMode(true) // 使用并行版本
+}
+
+// buildGraphWithMode 构建寻路图，可选择串行或并行模式
+func (nba *NodeBasedAStarPathfinder) buildGraphWithMode(useParallel bool) {
 	// 收集所有空白叶子节点
 	emptyLeaves := nba.collectEmptyLeaves(nba.octree.Root)
 
@@ -159,7 +177,13 @@ func (nba *NodeBasedAStarPathfinder) buildGraph() {
 	}
 
 	// 建立相邻节点之间的连接
-	nba.buildConnections(emptyLeaves)
+	beginTime := time.Now()
+	if useParallel {
+		nba.buildConnectionsParallel(emptyLeaves)
+	} else {
+		nba.buildConnections(emptyLeaves)
+	}
+	fmt.Printf("PathGraph建立连接: 耗时 %s\n", time.Since(beginTime))
 }
 
 // collectEmptyLeaves 收集所有空白的叶子节点
@@ -209,6 +233,150 @@ func (nba *NodeBasedAStarPathfinder) buildConnections(nodes []*OctreeNode) {
 	// 输出调试信息
 	fmt.Printf("PathGraph建立连接: 检查了 %d 对节点, 建立了 %d 个连接\n", totalChecks, totalConnections)
 	fmt.Printf("节点总数: %d, 边总数: %d\n", len(nba.graph.Nodes), len(nba.graph.Edges))
+}
+
+// buildConnectionsParallel 并行版本的建立节点之间的连接（智能版本）
+func (nba *NodeBasedAStarPathfinder) buildConnectionsParallel(nodes []*OctreeNode) {
+	totalNodes := len(nodes)
+
+	if totalNodes <= 1 {
+		fmt.Printf("PathGraph建立连接: 节点数量不足，无需建立连接\n")
+		return
+	}
+
+	// 计算总的节点对数量
+	totalPairs := (totalNodes * (totalNodes - 1)) / 2
+
+	// 智能决策：如果节点对数量太少，直接使用串行版本
+	const PARALLEL_THRESHOLD = 1000 // 小于1000个节点对时使用串行
+	if totalPairs < PARALLEL_THRESHOLD {
+		fmt.Printf("PathGraph建立连接: 节点对数量(%d)较少，使用串行版本\n", totalPairs)
+		nba.buildConnections(nodes)
+		return
+	}
+
+	numWorkers := runtime.NumCPU()
+
+	// 对于大数据集，限制worker数量以减少竞争
+	if totalPairs < 10000 {
+		numWorkers = min(numWorkers, 4) // 最多4个worker
+	}
+
+	fmt.Printf("PathGraph建立连接: 节点对数量(%d)较多，使用并行版本(workers: %d)\n", totalPairs, numWorkers)
+
+	// 使用批量处理减少原子操作
+	batchSize := max(totalPairs/(numWorkers*4), 50) // 每个批次至少50个
+
+	totalConnections := int64(0)
+	totalChecks := int64(0)
+
+	// 使用切片存储结果，避免动态分配
+	type EdgeResult struct {
+		pathNodeA *PathNode
+		pathNodeB *PathNode
+	}
+
+	// 每个worker有自己的结果切片
+	workerResults := make([][]EdgeResult, numWorkers)
+	for i := range workerResults {
+		workerResults[i] = make([]EdgeResult, 0, totalPairs/numWorkers+100)
+	}
+
+	var wg sync.WaitGroup
+	currentPair := int64(0)
+
+	for workerID := 0; workerID < numWorkers; workerID++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			localConnections := int64(0)
+			localChecks := int64(0)
+
+			for {
+				// 批量获取工作，减少原子操作频率
+				startIdx := atomic.AddInt64(&currentPair, int64(batchSize)) - int64(batchSize)
+				endIdx := startIdx + int64(batchSize)
+				if endIdx > int64(totalPairs) {
+					endIdx = int64(totalPairs)
+				}
+
+				if startIdx >= int64(totalPairs) {
+					break
+				}
+
+				// 处理这个批次
+				for pairIdx := startIdx; pairIdx < endIdx; pairIdx++ {
+					// 将线性索引转换为(i,j)
+					i, j := nba.pairIndexToIJ(int(pairIdx), totalNodes)
+					if i >= j || i >= totalNodes || j >= totalNodes {
+						continue
+					}
+
+					nodeA := nodes[i]
+					nodeB := nodes[j]
+					localChecks++
+
+					// 检查两个节点是否相邻
+					if nba.areNodesAdjacent(nodeA, nodeB) {
+						pathNodeA := nba.graph.Nodes[nodeA]
+						pathNodeB := nba.graph.Nodes[nodeB]
+
+						workerResults[id] = append(workerResults[id], EdgeResult{
+							pathNodeA: pathNodeA,
+							pathNodeB: pathNodeB,
+						})
+						localConnections++
+					}
+				}
+			}
+
+			// 更新全局计数器
+			atomic.AddInt64(&totalConnections, localConnections)
+			atomic.AddInt64(&totalChecks, localChecks)
+		}(workerID)
+	}
+
+	// 等待所有worker完成
+	wg.Wait()
+
+	// 在主线程中添加所有边
+	finalConnections := 0
+	for _, results := range workerResults {
+		for _, edge := range results {
+			nba.graph.AddEdge(edge.pathNodeA, edge.pathNodeB)
+			finalConnections++
+		}
+	}
+
+	// 输出调试信息
+	fmt.Printf("PathGraph并行建立连接: 检查了 %d 对节点, 建立了 %d 个连接 (使用 %d 个工作线程)\n",
+		totalChecks, totalConnections, numWorkers)
+	fmt.Printf("节点总数: %d, 边总数: %d\n", len(nba.graph.Nodes), len(nba.graph.Edges))
+}
+
+// pairIndexToIJ 将线性配对索引转换为(i,j)坐标
+func (nba *NodeBasedAStarPathfinder) pairIndexToIJ(pairIndex, n int) (int, int) {
+	// 使用数学公式直接计算
+	i := int((2*float64(n) - 1 - math.Sqrt(float64((2*n-1)*(2*n-1)-8*pairIndex))) / 2)
+	j := pairIndex - i*(2*n-i-1)/2 + i + 1
+	return i, j
+}
+
+// min 返回两个int中的较小值
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// max 返回两个int中的较大值
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // areNodesAdjacent 检查两个节点是否相邻且连通

@@ -152,7 +152,7 @@ func buildOctreeHandler(w http.ResponseWriter, r *http.Request) {
 	globalOctree.Build()
 
 	// 构建基于节点的A*寻路器
-	nodeBasedAstarPathfinder = octree.NewNodeBasedAStarPathfinder(globalOctree, globalOctree.MinSize)
+	nodeBasedAstarPathfinder = octree.NewNodeBasedAStarPathfinderWithParallel(globalOctree, globalOctree.MinSize, true)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "built"})
