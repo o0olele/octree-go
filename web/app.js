@@ -22,6 +22,10 @@ class OctreeVisualizer {
         this.gltfLoader = new THREE.GLTFLoader();
         this.loadedModels = []; // Store loaded GLTF models
         
+        // OBJ Loader
+        this.objLoader = new THREE.OBJLoader();
+        this.objGroup = new THREE.Group(); // For OBJ models
+        
         // Dynamic scene bounds tracking
         this.sceneBounds = {
             min: new THREE.Vector3(Infinity, Infinity, Infinity),
@@ -80,6 +84,7 @@ class OctreeVisualizer {
         this.scene.add(this.markersGroup);
         this.scene.add(this.waypointGroup);
         this.scene.add(this.gltfGroup);
+        this.scene.add(this.objGroup);
 
         // Add coordinate axes
         const axesHelper = new THREE.AxesHelper(15);
@@ -108,9 +113,12 @@ class OctreeVisualizer {
         // GLTF related events
         document.getElementById('geometryType').addEventListener('change', (e) => {
             const gltfSection = document.getElementById('gltfUploadSection');
+            const objSection = document.getElementById('objUploadSection');
             gltfSection.style.display = e.target.value === 'gltf' ? 'block' : 'none';
+            objSection.style.display = e.target.value === 'obj' ? 'block' : 'none';
         });
         document.getElementById('loadGltfBtn').addEventListener('click', () => this.loadGltfModel());
+        document.getElementById('loadObjBtn').addEventListener('click', () => this.loadObjModel());
 
         // Agent checkbox toggle
         document.getElementById('enableAgent').addEventListener('change', (e) => {
@@ -222,6 +230,22 @@ class OctreeVisualizer {
         
         // Check GLTF models
         this.gltfGroup.traverse((child) => {
+            if (child.isMesh && child.geometry) {
+                const box = new THREE.Box3().setFromObject(child);
+                if (!box.isEmpty()) {
+                    minX = Math.min(minX, box.min.x);
+                    minY = Math.min(minY, box.min.y);
+                    minZ = Math.min(minZ, box.min.z);
+                    maxX = Math.max(maxX, box.max.x);
+                    maxY = Math.max(maxY, box.max.y);
+                    maxZ = Math.max(maxZ, box.max.z);
+                    hasGeometry = true;
+                }
+            }
+        });
+        
+        // Check OBJ models
+        this.objGroup.traverse((child) => {
             if (child.isMesh && child.geometry) {
                 const box = new THREE.Box3().setFromObject(child);
                 if (!box.isEmpty()) {
@@ -1194,6 +1218,112 @@ class OctreeVisualizer {
             min: new THREE.Vector3(minX, minY, minZ),
             max: new THREE.Vector3(maxX, maxY, maxZ)
         };
+    }
+
+    async loadObjModel() {
+        const fileInput = document.getElementById('objFileInput');
+        const scaleInput = document.getElementById('objScale');
+
+        if (!fileInput.files || fileInput.files.length === 0) {
+            this.updateStatus('Please select an OBJ file');
+            return;
+        }
+
+        const file = fileInput.files[0];
+        const scale = parseFloat(scaleInput.value) || 1.0;
+
+        this.updateStatus('Loading OBJ model...');
+
+        try {
+            // Read file as text
+            const fileContent = await this.readFileAsText(file);
+
+            // Load OBJ model
+            const obj = this.objLoader.parse(fileContent);
+
+            // Scale the model
+            obj.scale.setScalar(scale);
+
+            // Add to scene for visualization
+            this.objGroup.add(obj);
+            this.loadedModels.push(obj);
+
+            // Extract triangles from the model
+            const triangles = this.extractTrianglesFromObj(obj, scale);
+
+            this.updateStatus(`Extracted ${triangles.length} triangles from OBJ model`);
+
+            // Send triangles to backend
+            if (triangles.length > 0) {
+                await this.sendTrianglesToBackend(triangles);
+                
+                // Calculate bounds of the loaded model
+                const modelBounds = this.calculateModelBounds(obj);
+                
+                this.updateStatus(`OBJ model loaded: ${triangles.length} triangles. Bounds: [${modelBounds.min.x.toFixed(1)}, ${modelBounds.min.y.toFixed(1)}, ${modelBounds.min.z.toFixed(1)}] to [${modelBounds.max.x.toFixed(1)}, ${modelBounds.max.y.toFixed(1)}, ${modelBounds.max.z.toFixed(1)}]. Re-initialize octree to update bounds.`);
+                
+                // Enable build button but suggest re-initializing
+                document.getElementById('pathfindBtn').disabled = false;
+                document.getElementById('initBtn').style.backgroundColor = '#ff6b6b'; // Highlight init button
+                document.getElementById('initBtn').textContent = 'Re-initialize Octree';
+                
+                // Update bounds display
+                this.updateBoundsDisplay();
+            } else {
+                this.updateStatus('Warning: No triangles extracted from OBJ model');
+            }
+
+        } catch (error) {
+            this.updateStatus(`Error loading OBJ: ${error.message}`);
+            console.error('OBJ loading error:', error);
+        }
+    }
+
+    readFileAsText(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsText(file);
+        });
+    }
+
+    extractTrianglesFromObj(obj, scale = 1.0) {
+        const triangles = [];
+
+        obj.traverse((child) => {
+            if (child.isMesh && child.geometry) {
+                const geometry = child.geometry;
+                const matrix = child.matrixWorld;
+
+                // Get position attribute
+                const positions = geometry.attributes.position;
+                if (!positions) return;
+
+                // Get indices if available
+                const indices = geometry.index;
+
+                if (indices) {
+                    // Indexed geometry
+                    for (let i = 0; i < indices.count; i += 3) {
+                        const a = indices.getX(i);
+                        const b = indices.getX(i + 1);
+                        const c = indices.getX(i + 2);
+
+                        const triangle = this.createTriangleFromIndices(positions, matrix, a, b, c, scale);
+                        if (triangle) triangles.push(triangle);
+                    }
+                } else {
+                    // Non-indexed geometry
+                    for (let i = 0; i < positions.count; i += 3) {
+                        const triangle = this.createTriangleFromIndices(positions, matrix, i, i + 1, i + 2, scale);
+                        if (triangle) triangles.push(triangle);
+                    }
+                }
+            }
+        });
+
+        return triangles;
     }
 
     updateBoundsDisplay() {

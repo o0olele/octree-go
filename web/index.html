@@ -28,6 +28,7 @@
                     <option value="mesh">Triangle Mesh</option>
                     <option value="convex_mesh">Convex Mesh</option>
                     <option value="gltf">GLTF Model</option>
+                    <option value="obj">OBJ Model</option>
                 </select>
                 <button id="addGeometryBtn">Add Random Geometry</button>
                 
@@ -37,6 +38,16 @@
                     <div style="display: flex; gap: 5px;">
                         <input type="number" id="gltfScale" placeholder="Scale" value="1.0" step="0.1" min="0.1" max="10.0" style="flex: 1;">
                         <button id="loadGltfBtn" style="flex: 2;">Load GLTF</button>
+                    </div>
+                    <small style="color: #ccc;">Scale: 0.1-10.0 (default: 1.0)</small>
+                </div>
+                
+                <!-- OBJ Upload Section -->
+                <div id="objUploadSection" style="display: none; margin-top: 10px;">
+                    <input type="file" id="objFileInput" accept=".obj" style="width: 100%; margin-bottom: 5px;">
+                    <div style="display: flex; gap: 5px;">
+                        <input type="number" id="objScale" placeholder="Scale" value="1.0" step="0.1" min="0.1" max="10.0" style="flex: 1;">
+                        <button id="loadObjBtn" style="flex: 2;">Load OBJ</button>
                     </div>
                     <small style="color: #ccc;">Scale: 0.1-10.0 (default: 1.0)</small>
                 </div>
@@ -121,15 +132,17 @@
             2. Add various geometries as obstacles:<br>
             &nbsp;&nbsp;• Random Box/Capsule/Mesh geometries<br>
             &nbsp;&nbsp;• Import GLTF/GLB models for complex scenes<br>
+            &nbsp;&nbsp;• Import OBJ models for 3D objects<br>
             3. Build the octree structure<br>
             4. Set start/end points and find path<br>
             5. Use mouse to rotate, wheel to zoom<br>
-            <small style="color: #ccc;">Supported: .gltf, .glb files</small>
+            <small style="color: #ccc;">Supported: .gltf, .glb, .obj files</small>
         </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
     <script src="app.js"></script>
