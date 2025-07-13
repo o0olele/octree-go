@@ -191,13 +191,13 @@ func (t Triangle) ContainsPoint(point Vector3) bool {
 	bounds := t.GetBounds()
 	return bounds.Contains(point)
 
-	// 首先检查点是否在三角形所在的平面上
-	if !t.isPointOnTrianglePlane(point) {
-		return false
-	}
+	// // 首先检查点是否在三角形所在的平面上
+	// if !t.isPointOnTrianglePlane(point) {
+	// 	return false
+	// }
 
-	// 使用重心坐标检测点是否在三角形内
-	return t.isPointInTriangle(point)
+	// // 使用重心坐标检测点是否在三角形内
+	// return t.isPointInTriangle(point)
 }
 
 // isPointOnTrianglePlane 检查点是否在三角形所在的平面上（允许一定的误差）

@@ -636,17 +636,13 @@ class OctreeVisualizer {
             agentHeight = parseFloat(document.getElementById('agentHeight').value) || 1.8;
         }
 
-        // Get selected algorithm
-        const algorithm = document.getElementById('pathfindingAlgorithm').value;
-
-        this.updateStatus(`Finding path using ${algorithm.toUpperCase()}...`);
+        this.updateStatus(`Finding path using astar-node...`);
 
         try {
             const requestBody = {
                 start: { x: startX, y: startY, z: startZ },
                 end: { x: endX, y: endY, z: endZ },
-                step_size: stepSize,
-                algorithm: algorithm
+                step_size: stepSize
             };
 
             if (enableAgent) {
@@ -670,8 +666,8 @@ class OctreeVisualizer {
                     
                     // 显示调试信息
                     let debugMsg = `Path found with ${result.length} points`;
-                    if (result.debug) {
-                        debugMsg += `. Algorithm: ${result.debug.algorithm || algorithm}`;
+                        if (result.debug) {
+                            debugMsg += `. Algorithm: astar-node`;
                         debugMsg += `, stepSize=${result.debug.stepSize}`;
                         if (result.debug.agentRadius > 0) {
                             debugMsg += `, agent=${result.debug.agentRadius}x${result.debug.agentHeight}`;
@@ -686,7 +682,7 @@ class OctreeVisualizer {
                 } else {
                     let debugMsg = 'No path found';
                     if (result.debug) {
-                        debugMsg += `. Algorithm: ${result.debug.algorithm || algorithm}`;
+                        debugMsg += `. Algorithm: astar-node`;
                         debugMsg += `, stepSize=${result.debug.stepSize}`;
                         if (result.debug.agentRadius > 0) {
                             debugMsg += `, agent=${result.debug.agentRadius}x${result.debug.agentHeight}`;

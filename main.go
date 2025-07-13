@@ -18,7 +18,6 @@ import (
 
 // 全局八叉树实例
 var globalOctree *octree.Octree
-var astarPathfinder *octree.AStarPathfinder
 var nodeBasedAstarPathfinder *octree.NodeBasedAStarPathfinder
 
 // 寻路算法接口
@@ -55,7 +54,6 @@ type PathfindRequest struct {
 	AgentRadius float64        `json:"agent_radius,omitempty"` // Agent半径，可选（向后兼容）
 	AgentHeight float64        `json:"agent_height,omitempty"` // Agent高度，可选（向后兼容）
 	Agent       *octree.Agent  `json:"agent,omitempty"`        // Agent对象，可选
-	Algorithm   string         `json:"algorithm,omitempty"`    // 算法选择:  "astar", "astar-node"
 }
 
 // 路径查找响应结构
@@ -76,8 +74,7 @@ func initOctreeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	globalOctree = octree.NewOctree(req.Bounds, req.MaxDepth, req.MinSize)
-	astarPathfinder = octree.NewAStarPathfinder(globalOctree, req.MinSize)
-	currentPathfinder = astarPathfinder // 默认使用A*
+	currentPathfinder = nil // 默认使用A*
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "initialized"})
@@ -177,7 +174,7 @@ func getOctreeHandler(w http.ResponseWriter, r *http.Request) {
 
 // 路径查找
 func findPathHandler(w http.ResponseWriter, r *http.Request) {
-	if globalOctree == nil || currentPathfinder == nil {
+	if globalOctree == nil {
 		http.Error(w, "Octree not initialized", http.StatusBadRequest)
 		return
 	}
@@ -188,22 +185,12 @@ func findPathHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 选择算法
-	if req.Algorithm != "" {
-		switch req.Algorithm {
-		case "astar":
-			currentPathfinder = astarPathfinder
-		case "astar-node":
-			if nodeBasedAstarPathfinder != nil {
-				currentPathfinder = nodeBasedAstarPathfinder
-			} else {
-				currentPathfinder = astarPathfinder
-			}
-		default:
-			currentPathfinder = astarPathfinder // 默认使用A*
-		}
+	if nodeBasedAstarPathfinder != nil {
+		currentPathfinder = nodeBasedAstarPathfinder
+	} else {
+		http.Error(w, "Node-based pathfinder not initialized", http.StatusBadRequest)
+		return
 	}
-
 	// 更新寻路器的步长
 	if req.StepSize > 0 {
 		currentPathfinder.SetStepSize(req.StepSize)
@@ -221,12 +208,11 @@ func findPathHandler(w http.ResponseWriter, r *http.Request) {
 	path := currentPathfinder.FindPath(req.Start, req.End)
 	endTime := time.Now()
 
-	fmt.Printf("Pathfinding time (%s): %v\n", req.Algorithm, endTime.Sub(begTime))
+	fmt.Printf("Pathfinding time: %v\n", endTime.Sub(begTime))
 
 	// 添加调试信息
 	debugInfo := map[string]interface{}{
 		"stepSize":    currentPathfinder.GetStepSize(),
-		"algorithm":   req.Algorithm,
 		"agentRadius": 0.0,
 		"agentHeight": 0.0,
 		"startValid":  !globalOctree.IsOccupied(req.Start),
@@ -295,20 +281,11 @@ func debugHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 选择算法
-	if req.Algorithm != "" {
-		switch req.Algorithm {
-		case "astar":
-			currentPathfinder = astarPathfinder
-		case "astar-node":
-			if nodeBasedAstarPathfinder != nil {
-				currentPathfinder = nodeBasedAstarPathfinder
-			} else {
-				currentPathfinder = astarPathfinder
-			}
-		default:
-			currentPathfinder = astarPathfinder // 默认使用A*
-		}
+	if nodeBasedAstarPathfinder != nil {
+		currentPathfinder = nodeBasedAstarPathfinder
+	} else {
+		http.Error(w, "Node-based pathfinder not initialized", http.StatusBadRequest)
+		return
 	}
 
 	// 更新寻路器的步长
@@ -339,7 +316,6 @@ func debugHandler(w http.ResponseWriter, r *http.Request) {
 		"startGrid":  []int{startGridX, startGridY, startGridZ},
 		"endGrid":    []int{endGridX, endGridY, endGridZ},
 		"stepSize":   currentPathfinder.GetStepSize(),
-		"algorithm":  req.Algorithm,
 		"startValid": !globalOctree.IsOccupied(req.Start),
 		"endValid":   !globalOctree.IsOccupied(req.End),
 		"gridDiff":   []int{endGridX - startGridX, endGridY - startGridY, endGridZ - startGridZ},
