@@ -13,6 +13,13 @@ A Go implementation of an Octree spatial partitioning and pathfinding library, s
 - **Web API**: RESTful API endpoints for easy integration
 - **Real-time Visualization**: Built-in web interface for visualizing octrees and paths
 
+## Installation
+- install by go get
+  ~~~shell
+    go get github.com/o0olele/octree-go
+  ~~~
+
+
 ## New Agent Pathfinding Capabilities
 
 ### Agent Concept
