@@ -58,7 +58,7 @@ func (nb *NavigationBuilder) SetParallel(parallel bool) {
 }
 
 // Build 构建导航网格，返回可序列化的导航数据
-func (nb *NavigationBuilder) Build() (*NavigationData, error) {
+func (nb *NavigationBuilder) Build(agent *Agent) (*NavigationData, error) {
 	startTime := time.Now()
 
 	// 1. 构建Octree
@@ -78,7 +78,7 @@ func (nb *NavigationBuilder) Build() (*NavigationData, error) {
 	// 2. 构建PathGraph
 	fmt.Println("Building pathfinder...")
 	pathfinderStart := time.Now()
-	nb.pathfinder = NewNodeBasedAStarPathfinderWithParallel(nb.octree, nb.stepSize, nb.useParallel)
+	nb.pathfinder = NewNodeBasedAStarPathfinderWithParallel(nb.octree, agent, nb.stepSize, nb.useParallel)
 	pathfinderTime := time.Since(pathfinderStart)
 	fmt.Printf("Pathfinder built in %v\n", pathfinderTime)
 

@@ -134,17 +134,22 @@ type MortonNodePair struct {
 
 // NewNodeBasedAStarPathfinder 创建基于节点的A*寻路器
 func NewNodeBasedAStarPathfinder(octree *Octree, stepSize float64) *NodeBasedAStarPathfinder {
-	return NewNodeBasedAStarPathfinderWithParallel(octree, stepSize, false)
+	return NewNodeBasedAStarPathfinderWithParallel(octree, nil, stepSize, false)
 }
 
 // NewNodeBasedAStarPathfinderWithParallel 创建基于节点的A*寻路器，可选择是否使用并行构建
-func NewNodeBasedAStarPathfinderWithParallel(octree *Octree, stepSize float64, useParallel bool) *NodeBasedAStarPathfinder {
+func NewNodeBasedAStarPathfinderWithParallel(octree *Octree, agent *Agent, stepSize float64, useParallel bool) *NodeBasedAStarPathfinder {
+	agentRadius := 0.5
+	if agent != nil {
+		agentRadius = agent.Radius
+	}
 	pathfinder := &NodeBasedAStarPathfinder{
 		octree:           octree,
+		agent:            agent,
 		stepSize:         stepSize,
 		graph:            NewPathGraph(),
-		mortonResolution: 1024,                    // 10位精度
-		funnelAlgorithm:  NewFunnelAlgorithm(0.5), // 默认Agent半径
+		mortonResolution: 1024,                            // 10位精度
+		funnelAlgorithm:  NewFunnelAlgorithm(agentRadius), // 默认Agent半径
 	}
 
 	// 构建寻路图

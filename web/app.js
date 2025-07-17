@@ -21,11 +21,11 @@ class OctreeVisualizer {
         // GLTF Loader
         this.gltfLoader = new THREE.GLTFLoader();
         this.loadedModels = []; // Store loaded GLTF models
-        
+
         // OBJ Loader
         this.objLoader = new THREE.OBJLoader();
         this.objGroup = new THREE.Group(); // For OBJ models
-        
+
         // Dynamic scene bounds tracking
         this.sceneBounds = {
             min: new THREE.Vector3(Infinity, Infinity, Infinity),
@@ -98,7 +98,7 @@ class OctreeVisualizer {
     setupControls() {
         // Simple orbit controls implementation
         this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
-        
+
     }
 
     setupEventListeners() {
@@ -124,7 +124,7 @@ class OctreeVisualizer {
         document.getElementById('enableAgent').addEventListener('change', (e) => {
             const agentControls = document.getElementById('agentControls');
             agentControls.style.display = e.target.checked ? 'block' : 'none';
-            this.updateStartEndMarkers(); // Update visualization
+            this.updateStartEndMarkers(true); // Update visualization
         });
 
         // Real-time position updates
@@ -134,7 +134,7 @@ class OctreeVisualizer {
 
         // Real-time agent parameter updates
         ['agentRadius', 'agentHeight'].forEach(id => {
-            document.getElementById(id).addEventListener('input', () => this.updateStartEndMarkers());
+            document.getElementById(id).addEventListener('input', () => this.updateStartEndMarkers(true));
         });
 
         // Animation speed control
@@ -157,10 +157,10 @@ class OctreeVisualizer {
 
     async initializeOctree() {
         this.updateStatus('Calculating scene bounds...');
-        
+
         // Calculate bounds based on all loaded geometries
         const bounds = this.calculateSceneBounds();
-        
+
         // Calculate scene size and suggest optimal parameters
         const sceneSize = {
             x: bounds.max.x - bounds.min.x,
@@ -168,18 +168,18 @@ class OctreeVisualizer {
             z: bounds.max.z - bounds.min.z
         };
         const maxDimension = Math.max(sceneSize.x, sceneSize.y, sceneSize.z);
-        
+
         // Automatically adjust parameters for large scenes
         let optimalMinSize = 1.0;
         let suggestedStepSize = 0.5;
         let suggestedMaxDepth = 5;
-        
+
         if (maxDimension > 50) {
             // Large scene adjustments
             optimalMinSize = Math.max(1.0, maxDimension / 100);
             suggestedStepSize = Math.max(0.2, maxDimension / 200);
             suggestedMaxDepth = Math.min(10, Math.ceil(Math.log2(maxDimension / optimalMinSize)));
-            
+
             // Update UI with suggestions
             document.getElementById('stepSize').value = suggestedStepSize.toFixed(1);
             this.updateStatus(`Large scene detected (${maxDimension.toFixed(1)} units). Suggested stepSize: ${suggestedStepSize.toFixed(1)}, maxDepth: ${suggestedMaxDepth}`);
@@ -189,14 +189,14 @@ class OctreeVisualizer {
                 suggestedStepSize = Math.max(0.1, maxDimension / 100);
                 suggestedMaxDepth = Math.min(8, 6 + Math.ceil(maxDimension / 20));
                 optimalMinSize = Math.max(0.5, maxDimension / 50);
-                
+
                 document.getElementById('stepSize').value = suggestedStepSize.toFixed(1);
                 this.updateStatus(`Complex scene detected (${maxDimension.toFixed(1)} units). For corridor/dungeon scenes, suggested stepSize: ${suggestedStepSize.toFixed(1)}, maxDepth: ${suggestedMaxDepth}. Use smaller stepSize (0.1-0.3) for better precision in narrow corridors.`);
             } else {
                 this.updateStatus('Initializing octree...');
             }
         }
-        
+
         try {
             const response = await fetch(`${this.apiBase}/init`, {
                 method: 'POST',
@@ -211,7 +211,7 @@ class OctreeVisualizer {
             if (response.ok) {
                 document.getElementById('buildBtn').disabled = false;
                 this.updateStatus(`Octree initialized with bounds: [${bounds.min.x.toFixed(1)}, ${bounds.min.y.toFixed(1)}, ${bounds.min.z.toFixed(1)}] to [${bounds.max.x.toFixed(1)}, ${bounds.max.y.toFixed(1)}, ${bounds.max.z.toFixed(1)}]. Scene size: ${maxDimension.toFixed(1)} units. MinSize: ${optimalMinSize.toFixed(1)}, MaxDepth: ${suggestedMaxDepth}`);
-                
+
                 // Reset button state
                 document.getElementById('initBtn').style.backgroundColor = '';
                 document.getElementById('initBtn').textContent = 'Initialize Octree';
@@ -222,12 +222,12 @@ class OctreeVisualizer {
             this.updateStatus(`Error: ${error.message}`);
         }
     }
-    
+
     calculateSceneBounds() {
         let minX = Infinity, minY = Infinity, minZ = Infinity;
         let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
         let hasGeometry = false;
-        
+
         // Check GLTF models
         this.gltfGroup.traverse((child) => {
             if (child.isMesh && child.geometry) {
@@ -243,7 +243,7 @@ class OctreeVisualizer {
                 }
             }
         });
-        
+
         // Check OBJ models
         this.objGroup.traverse((child) => {
             if (child.isMesh && child.geometry) {
@@ -259,7 +259,7 @@ class OctreeVisualizer {
                 }
             }
         });
-        
+
         // Check other geometries (boxes, capsules, etc.)
         this.geometryGroup.traverse((child) => {
             if (child.isMesh) {
@@ -275,7 +275,7 @@ class OctreeVisualizer {
                 }
             }
         });
-        
+
         // If no geometry found, use default bounds
         if (!hasGeometry) {
             const size = 50;
@@ -284,24 +284,24 @@ class OctreeVisualizer {
                 max: { x: size, y: size, z: size }
             };
         }
-        
+
         // Add some padding around the geometry (20% of the largest dimension)
         const sizeX = maxX - minX;
         const sizeY = maxY - minY;
         const sizeZ = maxZ - minZ;
         const maxSize = Math.max(sizeX, sizeY, sizeZ);
         const padding = Math.max(maxSize * 0.2, 2.0); // At least 2 units padding
-        
+
         return {
-            min: { 
-                x: minX - padding, 
-                y: minY - padding, 
-                z: minZ - padding 
+            min: {
+                x: minX - padding,
+                y: minY - padding,
+                z: minZ - padding
             },
-            max: { 
-                x: maxX + padding, 
-                y: maxY + padding, 
-                z: maxZ + padding 
+            max: {
+                x: maxX + padding,
+                y: maxY + padding,
+                z: maxZ + padding
             }
         };
     }
@@ -436,7 +436,7 @@ class OctreeVisualizer {
                     this.updateBoundsDisplay();
                     return;
                 }
-                
+
             } else if (type === 'convex_mesh') {
                 // Create a random convex mesh (cube-like shape with random vertices)
                 const center = {
@@ -658,16 +658,16 @@ class OctreeVisualizer {
 
             if (response.ok) {
                 const result = await response.json();
-                
+
                 if (result.found && result.path && result.path.length > 0) {
-                    this.visualizePath(result.path, 
-                        { x: startX, y: startY, z: startZ }, 
+                    this.visualizePath(result.path,
+                        { x: startX, y: startY, z: startZ },
                         { x: endX, y: endY, z: endZ });
-                    
+
                     // 显示调试信息
                     let debugMsg = `Path found with ${result.length} points`;
-                        if (result.debug) {
-                            debugMsg += `. Algorithm: astar-node`;
+                    if (result.debug) {
+                        debugMsg += `. Algorithm: astar-node`;
                         debugMsg += `, stepSize=${result.debug.stepSize}`;
                         if (result.debug.agentRadius > 0) {
                             debugMsg += `, agent=${result.debug.agentRadius}x${result.debug.agentHeight}`;
@@ -703,7 +703,7 @@ class OctreeVisualizer {
         }
     }
 
-    updateStartEndMarkers() {
+    async updateStartEndMarkers(updateAgent = false) {
         // Clear existing start/end markers but keep waypoints
         this.clearStartEndMarkers();
 
@@ -727,6 +727,22 @@ class OctreeVisualizer {
 
         // Always create new markers
         if (enableAgent && agentRadius > 0 && agentHeight > 0) {
+            if (updateAgent) {
+                const response = await fetch(`${this.apiBase}/agent`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        radius: agentRadius,
+                        height: agentHeight
+                    })
+                });
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log(result);
+                } else {
+                    throw new Error('Failed to add agent');
+                }
+            }
             // Create capsule representations for start and end
             this.createAgentMarker(start, 0x00ff00, agentRadius, agentHeight, 'start');
             this.createAgentMarker(end, 0xff0000, agentRadius, agentHeight, 'end');
@@ -764,18 +780,19 @@ class OctreeVisualizer {
             wireframe: true
         });
         const cylinder = new THREE.Mesh(cylinderGeometry, cylinderMaterial);
+        cylinder.position.y = height / 2 + radius;
         group.add(cylinder);
 
         // Top hemisphere
         const topSphereGeometry = new THREE.SphereGeometry(radius, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2);
         const topSphere = new THREE.Mesh(topSphereGeometry, cylinderMaterial);
-        topSphere.position.y = height / 2;
+        topSphere.position.y = height + radius;
         group.add(topSphere);
 
         // Bottom hemisphere
         const bottomSphereGeometry = new THREE.SphereGeometry(radius, 8, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
         const bottomSphere = new THREE.Mesh(bottomSphereGeometry, cylinderMaterial);
-        bottomSphere.position.y = -height / 2;
+        bottomSphere.position.y = 0 + radius;
         group.add(bottomSphere);
 
         // Center point marker
@@ -898,18 +915,19 @@ class OctreeVisualizer {
             opacity: 0.8
         });
         const cylinder = new THREE.Mesh(cylinderGeometry, cylinderMaterial);
+        cylinder.position.y = height / 2 + radius;
         group.add(cylinder);
 
         // Top hemisphere
         const topSphereGeometry = new THREE.SphereGeometry(radius, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2);
         const topSphere = new THREE.Mesh(topSphereGeometry, cylinderMaterial);
-        topSphere.position.y = height / 2;
+        topSphere.position.y = height + radius;
         group.add(topSphere);
 
         // Bottom hemisphere
         const bottomSphereGeometry = new THREE.SphereGeometry(radius, 8, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
         const bottomSphere = new THREE.Mesh(bottomSphereGeometry, cylinderMaterial);
-        bottomSphere.position.y = -height / 2;
+        bottomSphere.position.y = 0 + radius;
         group.add(bottomSphere);
 
         return group;
@@ -1000,7 +1018,7 @@ class OctreeVisualizer {
         document.getElementById('toggleOctreeBtn').textContent = 'Show Octree';
         this.showOctree = false;
         this.showPathGraph = false; // Reset PathGraph visibility state
-        
+
         // Reset button states
         document.getElementById('initBtn').style.backgroundColor = '';
         document.getElementById('initBtn').textContent = 'Initialize Octree';
@@ -1009,7 +1027,7 @@ class OctreeVisualizer {
 
         // Restore start/end markers
         setTimeout(() => this.updateStartEndMarkers(), 100);
-        
+
         // Update bounds display (will hide it since no geometry)
         this.updateBoundsDisplay();
     }
@@ -1080,17 +1098,17 @@ class OctreeVisualizer {
             // Send triangles to backend
             if (triangles.length > 0) {
                 await this.sendTrianglesToBackend(triangles);
-                
+
                 // Calculate bounds of the loaded model
                 const modelBounds = this.calculateModelBounds(gltf.scene);
-                
+
                 this.updateStatus(`GLTF model loaded: ${triangles.length} triangles. Bounds: [${modelBounds.min.x.toFixed(1)}, ${modelBounds.min.y.toFixed(1)}, ${modelBounds.min.z.toFixed(1)}] to [${modelBounds.max.x.toFixed(1)}, ${modelBounds.max.y.toFixed(1)}, ${modelBounds.max.z.toFixed(1)}]. Re-initialize octree to update bounds.`);
-                
+
                 // Enable build button but suggest re-initializing
                 document.getElementById('pathfindBtn').disabled = false;
                 document.getElementById('initBtn').style.backgroundColor = '#ff6b6b'; // Highlight init button
                 document.getElementById('initBtn').textContent = 'Re-initialize Octree';
-                
+
                 // Update bounds display
                 this.updateBoundsDisplay();
             } else {
@@ -1252,17 +1270,17 @@ class OctreeVisualizer {
             // Send triangles to backend
             if (triangles.length > 0) {
                 await this.sendTrianglesToBackend(triangles);
-                
+
                 // Calculate bounds of the loaded model
                 const modelBounds = this.calculateModelBounds(obj);
-                
+
                 this.updateStatus(`OBJ model loaded: ${triangles.length} triangles. Bounds: [${modelBounds.min.x.toFixed(1)}, ${modelBounds.min.y.toFixed(1)}, ${modelBounds.min.z.toFixed(1)}] to [${modelBounds.max.x.toFixed(1)}, ${modelBounds.max.y.toFixed(1)}, ${modelBounds.max.z.toFixed(1)}]. Re-initialize octree to update bounds.`);
-                
+
                 // Enable build button but suggest re-initializing
                 document.getElementById('pathfindBtn').disabled = false;
                 document.getElementById('initBtn').style.backgroundColor = '#ff6b6b'; // Highlight init button
                 document.getElementById('initBtn').textContent = 'Re-initialize Octree';
-                
+
                 // Update bounds display
                 this.updateBoundsDisplay();
             } else {
@@ -1325,14 +1343,14 @@ class OctreeVisualizer {
     updateBoundsDisplay() {
         const boundsInfo = document.getElementById('boundsInfo');
         const boundsText = document.getElementById('boundsText');
-        
+
         if (this.sceneBounds.hasGeometry) {
             const size = {
                 x: this.sceneBounds.max.x - this.sceneBounds.min.x,
                 y: this.sceneBounds.max.y - this.sceneBounds.min.y,
                 z: this.sceneBounds.max.z - this.sceneBounds.min.z
             };
-            
+
             boundsText.innerHTML = `
                 Min: (${this.sceneBounds.min.x.toFixed(1)}, ${this.sceneBounds.min.y.toFixed(1)}, ${this.sceneBounds.min.z.toFixed(1)})<br>
                 Max: (${this.sceneBounds.max.x.toFixed(1)}, ${this.sceneBounds.max.y.toFixed(1)}, ${this.sceneBounds.max.z.toFixed(1)})<br>
@@ -1374,11 +1392,11 @@ class OctreeVisualizer {
 
         // Create a map for quick node lookup
         const nodeMap = new Map();
-        
+
         // Visualize nodes
         nodes.forEach(node => {
             nodeMap.set(node.id, node);
-            
+
             // Create node visualization (small sphere)
             const nodeGeometry = new THREE.SphereGeometry(0.1, 8, 6);
             const nodeMaterial = new THREE.MeshBasicMaterial({
@@ -1386,7 +1404,7 @@ class OctreeVisualizer {
                 transparent: true,
                 opacity: 0.8
             });
-            
+
             const nodeMesh = new THREE.Mesh(nodeGeometry, nodeMaterial);
             nodeMesh.position.set(node.center.x, node.center.y, node.center.z);
             this.pathGraphGroup.add(nodeMesh);
@@ -1415,14 +1433,14 @@ class OctreeVisualizer {
         edges.forEach(edge => {
             const nodeA = nodeMap.get(edge.node_a_id);
             const nodeB = nodeMap.get(edge.node_b_id);
-            
+
             if (nodeA && nodeB) {
                 // Create line geometry for edge
                 const points = [
                     new THREE.Vector3(nodeA.center.x, nodeA.center.y, nodeA.center.z),
                     new THREE.Vector3(nodeB.center.x, nodeB.center.y, nodeB.center.z)
                 ];
-                
+
                 const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
                 const lineMaterial = new THREE.LineBasicMaterial({
                     color: 0x0088ff,
@@ -1430,7 +1448,7 @@ class OctreeVisualizer {
                     opacity: 0.6,
                     linewidth: 2
                 });
-                
+
                 const line = new THREE.Line(lineGeometry, lineMaterial);
                 this.pathGraphGroup.add(line);
             }
@@ -1441,7 +1459,7 @@ class OctreeVisualizer {
 
     togglePathGraphVisualization() {
         this.showPathGraph = !this.showPathGraph;
-        
+
         if (this.showPathGraph) {
             if (this.pathGraphData) {
                 this.visualizePathGraph();

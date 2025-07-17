@@ -87,7 +87,7 @@ func BuildAndSave(bounds AABB, maxDepth int, minSize float64, stepSize float64, 
 	builder.AddGeometries(geometries)
 
 	// 构建导航数据
-	navData, err := builder.Build()
+	navData, err := builder.Build(nil)
 	if err != nil {
 		return fmt.Errorf("failed to build navigation data: %v", err)
 	}

@@ -444,9 +444,8 @@ func NewAgent(radius, height float64) *Agent {
 // GetCapsule 根据位置获取Agent的胶囊体表示
 func (a *Agent) GetCapsule(position Vector3) Capsule {
 	// 胶囊体的轴线沿Y轴方向
-	halfHeight := a.Height / 2
-	start := Vector3{position.X, position.Y - halfHeight, position.Z}
-	end := Vector3{position.X, position.Y + halfHeight, position.Z}
+	start := Vector3{position.X, position.Y + a.Radius, position.Z}
+	end := Vector3{position.X, position.Y + a.Height + a.Radius, position.Z}
 	return Capsule{
 		Start:  start,
 		End:    end,
@@ -455,9 +454,8 @@ func (a *Agent) GetCapsule(position Vector3) Capsule {
 }
 
 func GetCapsuleAABB(position Vector3, radius float64, height float64) AABB {
-	halfHeight := height / 2
-	start := Vector3{position.X, position.Y - halfHeight, position.Z}
-	end := Vector3{position.X, position.Y + halfHeight, position.Z}
+	start := Vector3{position.X, position.Y, position.Z}
+	end := Vector3{position.X, position.Y + height + 2*radius, position.Z}
 	return AABB{
 		Min: Vector3{start.X - radius, start.Y - radius, start.Z - radius},
 		Max: Vector3{end.X + radius, end.Y + radius, end.Z + radius},

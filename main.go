@@ -23,6 +23,7 @@ var globalOctree *octree.Octree
 var nodeBasedAstarPathfinder *octree.NodeBasedAStarPathfinder
 var navigationBuilder *octree.NavigationBuilder
 var navigationQuery *octree.NavigationQuery
+var globalAgent *octree.Agent
 
 // 寻路算法接口
 type Pathfinder interface {
@@ -161,7 +162,7 @@ func buildOctreeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 构建导航数据
-	navData, err := navigationBuilder.Build()
+	navData, err := navigationBuilder.Build(globalAgent)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to build navigation data: %v", err), http.StatusInternalServerError)
 		return
@@ -176,8 +177,8 @@ func buildOctreeHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 保持兼容性，也构建传统的octree和pathfinder
 	if globalOctree != nil {
-		globalOctree.Build()
-		nodeBasedAstarPathfinder = octree.NewNodeBasedAStarPathfinderWithParallel(globalOctree, globalOctree.MinSize, true)
+		//globalOctree.Build()
+		//nodeBasedAstarPathfinder = octree.NewNodeBasedAStarPathfinderWithParallel(globalOctree, globalAgent, globalOctree.MinSize, true)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -470,7 +471,7 @@ func saveHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 构建导航数据
-	navData, err := navigationBuilder.Build()
+	navData, err := navigationBuilder.Build(globalAgent)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to build navigation data: %v", err), http.StatusInternalServerError)
 		return
@@ -506,12 +507,15 @@ func loadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	begTime := time.Now()
 	// 加载导航数据并创建查询器
 	query, err := octree.LoadAndQuery(req.NavigationFilename)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to load navigation data: %v", err), http.StatusInternalServerError)
 		return
 	}
+	endTime := time.Now()
+	fmt.Printf("Load navigation data time: %v\n", endTime.Sub(begTime))
 
 	navigationQuery = query
 
@@ -544,6 +548,19 @@ func getNavigationInfoHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(info)
 }
 
+func addAgentHandler(w http.ResponseWriter, r *http.Request) {
+	var req octree.Agent
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	globalAgent = octree.NewAgent(req.Radius, req.Height)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "added", "agent": fmt.Sprintf("%+v", globalAgent)})
+}
+
 func main() {
 	r := mux.NewRouter()
 
@@ -554,6 +571,7 @@ func main() {
 	// API 路由
 	api := r.PathPrefix("/api").Subrouter()
 	api.HandleFunc("/init", initOctreeHandler).Methods("POST")
+	api.HandleFunc("/agent", addAgentHandler).Methods("POST")
 	api.HandleFunc("/geometry", addGeometryHandler).Methods("POST")
 	api.HandleFunc("/mesh", addMeshHandler).Methods("POST")
 	api.HandleFunc("/build", buildOctreeHandler).Methods("POST")
