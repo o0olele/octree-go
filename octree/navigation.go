@@ -22,6 +22,29 @@ type NavigationQuery struct {
 
 	// 漏斗算法
 	funnelAlgorithm *FunnelAlgorithm
+
+	// 路径偏好配置
+	pathPreferences *PathPreferences
+}
+
+// PathPreferences 路径偏好配置
+type PathPreferences struct {
+	InteriorPathBonus    float64 // 内部路径奖励（降低成本的比例）
+	BoundaryPathPenalty  float64 // 边界路径惩罚（增加成本的比例）
+	DensityBonus         float64 // 高密度区域奖励
+	BoundaryThreshold    float64 // 边界阈值（相对于stepSize的倍数）
+	EnablePathPreference bool    // 是否启用路径偏好
+}
+
+// DefaultPathPreferences 返回默认的路径偏好配置
+func DefaultPathPreferences() *PathPreferences {
+	return &PathPreferences{
+		InteriorPathBonus:    0.2,  // 内部路径成本降低20%
+		BoundaryPathPenalty:  0.5,  // 边界路径成本增加50%
+		DensityBonus:         0.2,  // 高密度区域成本降低20%
+		BoundaryThreshold:    3.0,  // 边界阈值为stepSize的3倍
+		EnablePathPreference: true, // 默认启用路径偏好
+	}
 }
 
 // NewNavigationQuery 创建新的导航查询器
@@ -45,6 +68,7 @@ func NewNavigationQuery(navData *NavigationData) (*NavigationQuery, error) {
 		geometries:      geometries,
 		spatialCache:    make(map[Vector3]int),
 		funnelAlgorithm: NewFunnelAlgorithm(0.5), // 默认Agent半径
+		pathPreferences: DefaultPathPreferences(),
 	}
 
 	return nq, nil
@@ -133,31 +157,70 @@ func (nq *NavigationQuery) findClosestNodeMorton(pos Vector3) int {
 		return nodeMorton >= queryMorton
 	})
 
-	// 检查周围的节点
-	candidates := make([]int, 0, 16)
-	searchRadius := 8 // 检查前后8个节点
+	// 优化：避免重复计算，使用增量搜索和全局最佳跟踪
+	checkedNodes := make(map[int]bool) // 记录已检查的节点
+	globalBestNodeID := -1
+	globalBestDistance := math.MaxFloat64
 
-	for i := targetIndex - searchRadius; i <= targetIndex+searchRadius; i++ {
-		if i >= 0 && i < len(nq.navData.MortonIndex) {
-			candidates = append(candidates, nq.navData.MortonIndex[i])
+	initialRadius := 8
+	maxRadius := int(math.Min(64, float64(len(nq.navData.MortonIndex)/4))) // 最大搜索范围
+	prevRadius := 0                                                        // 上一次的搜索半径
+
+	for searchRadius := initialRadius; searchRadius <= maxRadius; searchRadius *= 2 {
+		newCandidates := make([]int, 0, searchRadius)
+
+		// 收集当前搜索半径内的新节点
+		startIndex := targetIndex - searchRadius
+		endIndex := targetIndex + searchRadius
+
+		// 确保索引范围有效
+		if startIndex < 0 {
+			startIndex = 0
 		}
+		if endIndex >= len(nq.navData.MortonIndex) {
+			endIndex = len(nq.navData.MortonIndex) - 1
+		}
+
+		for i := startIndex; i <= endIndex; i++ {
+			// 跳过之前搜索范围内的节点（除了第一次搜索）
+			if prevRadius > 0 && i >= targetIndex-prevRadius && i <= targetIndex+prevRadius {
+				continue
+			}
+
+			nodeID := nq.navData.MortonIndex[i]
+			if !checkedNodes[nodeID] {
+				newCandidates = append(newCandidates, nodeID)
+				checkedNodes[nodeID] = true
+			}
+		}
+
+		// 如果没有新节点，继续扩大搜索范围
+		if len(newCandidates) == 0 {
+			prevRadius = searchRadius
+			continue
+		}
+
+		// 在新候选节点中更新全局最佳节点
+		for _, nodeID := range newCandidates {
+			node := &nq.navData.Nodes[nodeID]
+			distance := pos.Distance(node.Center)
+
+			// 没有Agent时，直接比较距离
+			if distance < globalBestDistance {
+				globalBestDistance = distance
+				globalBestNodeID = nodeID
+			}
+		}
+
+		// 如果找到了合适的节点，直接返回
+		if globalBestNodeID != -1 {
+			return globalBestNodeID
+		}
+
+		prevRadius = searchRadius
 	}
 
-	// 找到距离最近的节点
-	bestNodeID := -1
-	bestDistance := math.MaxFloat64
-
-	for _, nodeID := range candidates {
-		node := &nq.navData.Nodes[nodeID]
-		distance := pos.Distance(node.Center)
-
-		if distance < bestDistance {
-			bestDistance = distance
-			bestNodeID = nodeID
-		}
-	}
-
-	return bestNodeID
+	return -1
 }
 
 // findClosestNodeBruteForce 暴力查找最近节点
@@ -240,15 +303,13 @@ func (nq *NavigationQuery) astar(startNodeID, endNodeID int) []int {
 				continue
 			}
 
-			currentNode := &nq.navData.Nodes[currentNodeID]
-			neighborNode := &nq.navData.Nodes[neighborID]
-
 			// 计算移动成本
-			tentativeG := gScore[currentNodeID] + currentNode.Center.Distance(neighborNode.Center)
+			tentativeG := gScore[currentNodeID] + nq.calculateEnhancedMovementCost(currentNodeID, neighborID)
 
 			if existingG, exists := gScore[neighborID]; !exists || tentativeG < existingG {
 				cameFrom[neighborID] = currentNodeID
 				gScore[neighborID] = tentativeG
+				neighborNode := &nq.navData.Nodes[neighborID]
 				fScore[neighborID] = tentativeG + nq.heuristic(neighborNode.Center, endNode.Center)
 
 				// 优化：使用map快速检查是否已在开放列表中
@@ -275,6 +336,81 @@ func (nq *NavigationQuery) astar(startNodeID, endNodeID int) []int {
 // heuristic 启发式函数
 func (nq *NavigationQuery) heuristic(a, b Vector3) float64 {
 	return a.Distance(b)
+}
+
+// calculateEnhancedMovementCost 计算增强的移动成本，考虑路径偏好
+func (nq *NavigationQuery) calculateEnhancedMovementCost(currentNodeID, neighborNodeID int) float64 {
+	currentNode := &nq.navData.Nodes[currentNodeID]
+	neighborNode := &nq.navData.Nodes[neighborNodeID]
+
+	// 基础距离成本
+	baseCost := currentNode.Center.Distance(neighborNode.Center)
+
+	// 如果未启用路径偏好，直接返回基础成本
+	if !nq.pathPreferences.EnablePathPreference {
+		return baseCost
+	}
+
+	// 检查是否为边界节点（靠近场景边界的节点）
+	currentIsBoundary := nq.isNodeNearBoundary(currentNode)
+	neighborIsBoundary := nq.isNodeNearBoundary(neighborNode)
+
+	// 应用路径偏好权重
+	var costMultiplier float64 = 1.0
+
+	if currentIsBoundary && neighborIsBoundary {
+		// 两个节点都在边界附近，增加成本以降低优先级
+		costMultiplier = 1.0 + nq.pathPreferences.BoundaryPathPenalty
+	} else if currentIsBoundary || neighborIsBoundary {
+		// 只有一个节点在边界附近，轻微增加成本
+		costMultiplier = 1.0 + (nq.pathPreferences.BoundaryPathPenalty * 0.5)
+	} else {
+		// 两个节点都不在边界附近，给予内部路径奖励
+		costMultiplier = 1.0 - nq.pathPreferences.InteriorPathBonus
+	}
+
+	// 检查节点密度，密度高的区域（如房间内部）成本较低
+	densityFactor := nq.calculateNodeDensityFactor(currentNodeID, neighborNodeID)
+	costMultiplier *= densityFactor
+
+	return baseCost * costMultiplier
+}
+
+// isNodeNearBoundary 检查节点是否靠近场景边界
+func (nq *NavigationQuery) isNodeNearBoundary(node *CompactNode) bool {
+	bounds := nq.navData.Bounds
+	boundaryThreshold := nq.stepSize * nq.pathPreferences.BoundaryThreshold // 使用配置的边界阈值
+
+	center := node.Center
+
+	// 检查是否靠近任何边界
+	return (center.X-bounds.Min.X) < boundaryThreshold ||
+		(bounds.Max.X-center.X) < boundaryThreshold ||
+		(center.Y-bounds.Min.Y) < boundaryThreshold ||
+		(bounds.Max.Y-center.Y) < boundaryThreshold ||
+		(center.Z-bounds.Min.Z) < boundaryThreshold ||
+		(bounds.Max.Z-center.Z) < boundaryThreshold
+}
+
+// calculateNodeDensityFactor 计算节点密度因子
+func (nq *NavigationQuery) calculateNodeDensityFactor(currentNodeID, neighborNodeID int) float64 {
+	// 计算当前节点周围的邻居数量
+	currentNeighbors := len(nq.navData.GetNeighbors(currentNodeID))
+	neighborNeighbors := len(nq.navData.GetNeighbors(neighborNodeID))
+
+	// 平均邻居数量
+	avgNeighbors := float64(currentNeighbors+neighborNeighbors) / 2.0
+
+	// 高密度区域（邻居多）成本较低，低密度区域成本较高
+	if avgNeighbors > 6 {
+		return 1.0 - nq.pathPreferences.DensityBonus // 使用配置的密度奖励
+	} else if avgNeighbors > 4 {
+		return 1.0 - (nq.pathPreferences.DensityBonus * 0.5) // 使用一半的密度奖励
+	} else if avgNeighbors < 3 {
+		return 1.0 + (nq.pathPreferences.DensityBonus * 1.5) // 低密度区域增加成本
+	}
+
+	return 1.0 // 默认成本
 }
 
 // convertToWorldPath 将节点路径转换为世界坐标路径
