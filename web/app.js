@@ -632,8 +632,8 @@ class OctreeVisualizer {
         let agentHeight = 0;
 
         if (enableAgent) {
-            agentRadius = parseFloat(document.getElementById('agentRadius').value) || 0.5;
-            agentHeight = parseFloat(document.getElementById('agentHeight').value) || 1.8;
+            agentRadius = parseFloat(document.getElementById('agentRadius').value) || 0.4;
+            agentHeight = parseFloat(document.getElementById('agentHeight').value) || 1.1;
         }
 
         this.updateStatus(`Finding path using astar-node...`);
@@ -722,8 +722,8 @@ class OctreeVisualizer {
 
         // Check if agent is enabled
         const enableAgent = document.getElementById('enableAgent').checked;
-        const agentRadius = parseFloat(document.getElementById('agentRadius').value) || 0.5;
-        const agentHeight = parseFloat(document.getElementById('agentHeight').value) || 1.8;
+        const agentRadius = parseFloat(document.getElementById('agentRadius').value) || 0.4;
+        const agentHeight = parseFloat(document.getElementById('agentHeight').value) || 1.1;
 
         // Always create new markers
         if (enableAgent && agentRadius > 0 && agentHeight > 0) {

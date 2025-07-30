@@ -37,6 +37,20 @@ func (v Vector3) Length() float64 {
 	return math.Sqrt(v.X*v.X + v.Y*v.Y + v.Z*v.Z)
 }
 
+// Dot 点积
+func (v Vector3) Dot(other Vector3) float64 {
+	return v.X*other.X + v.Y*other.Y + v.Z*other.Z
+}
+
+// Cross 叉积
+func (v Vector3) Cross(other Vector3) Vector3 {
+	return Vector3{
+		v.Y*other.Z - v.Z*other.Y,
+		v.Z*other.X - v.X*other.Z,
+		v.X*other.Y - v.Y*other.X,
+	}
+}
+
 // AABB 轴对齐包围盒
 type AABB struct {
 	Min Vector3 `json:"min"`
@@ -656,30 +670,230 @@ func (o *Octree) capsuleIntersectsGeometry(capsule Capsule, geom Geometry) bool 
 	}
 }
 
-// capsuleIntersectsTriangle 胶囊体与三角形相交检测
-func (o *Octree) capsuleIntersectsTriangle(capsule Capsule, triangle Triangle) bool {
-	// 简化实现：检查胶囊体轴线到三角形各边的距离
-	edges := []struct{ start, end Vector3 }{
+// PointSegmentDistanceSquared 计算点到线段的最短距离平方
+func PointSegmentDistanceSquared(p, a, b Vector3) float64 {
+	if a.X == b.X && a.Y == b.Y && a.Z == b.Z {
+		dp := p.Sub(a)
+		return dp.Dot(dp)
+	}
+	ab := b.Sub(a)
+	ap := p.Sub(a)
+	t := ap.Dot(ab) / ab.Dot(ab)
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	}
+	closest := a.Add(ab.Mul(t))
+	dp := p.Sub(closest)
+	return dp.Dot(dp)
+}
+
+// SegmentSegmentDistanceSquared 计算两条线段间的最短距离平方
+func SegmentSegmentDistanceSquared(p1, q1, p2, q2 Vector3) float64 {
+	const EPS = 1e-6
+	// 处理退化情况：线段1退化为点
+	if p1.X == q1.X && p1.Y == q1.Y && p1.Z == q1.Z {
+		return PointSegmentDistanceSquared(p1, p2, q2)
+	}
+	// 处理退化情况：线段2退化为点
+	if p2.X == q2.X && p2.Y == q2.Y && p2.Z == q2.Z {
+		return PointSegmentDistanceSquared(p2, p1, q1)
+	}
+
+	d1 := q1.Sub(p1)
+	d2 := q2.Sub(p2)
+	r := p1.Sub(p2)
+	a := d1.Dot(d1)
+	b := d1.Dot(d2)
+	c := d2.Dot(d2)
+	d := d1.Dot(r)
+	e := d2.Dot(r)
+	denom := a*c - b*b
+
+	// 两线段平行（退化情况）
+	if math.Abs(denom) < EPS {
+		dist1 := PointSegmentDistanceSquared(p1, p2, q2)
+		dist2 := PointSegmentDistanceSquared(q1, p2, q2)
+		if dist1 < dist2 {
+			return dist1
+		}
+		return dist2
+	}
+
+	sN := b*e - c*d
+	tN := a*e - b*d
+	sD := denom
+	tD := c
+
+	// 处理sN超出[0, sD]范围
+	if sN < 0 {
+		sN = 0
+		tN = e
+		if tN < 0 {
+			tN = 0
+		} else if tN > tD {
+			tN = tD
+		}
+	} else if sN > sD {
+		sN = sD
+		tN = e + b
+		if tN < 0 {
+			tN = 0
+		} else if tN > tD {
+			tN = tD
+		}
+	}
+
+	// 处理tN超出[0, tD]范围
+	if tN < 0 {
+		tN = 0
+		sN = -d
+		if sN < 0 {
+			sN = 0
+		} else if sN > sD {
+			sN = sD
+		}
+	} else if tN > tD {
+		tN = tD
+		sN = -d + b
+		if sN < 0 {
+			sN = 0
+		} else if sN > sD {
+			sN = sD
+		}
+	}
+
+	// 计算参数s和t
+	sc := 0.0
+	if sN < EPS {
+		sc = 0
+	} else if sN > sD {
+		sc = 1
+	} else {
+		sc = sN / sD
+	}
+
+	tc := 0.0
+	if tN < EPS {
+		tc = 0
+	} else if tN > tD {
+		tc = 1
+	} else {
+		tc = tN / tD
+	}
+
+	// 计算最近点间向量并返回距离平方
+	dP := r.Add(d1.Mul(sc)).Sub(d2.Mul(tc))
+	return dP.Dot(dP)
+}
+
+// PointInTriangle3D 检查点是否在三角形内部（3D空间）
+func PointInTriangle3D(p, a, b, c Vector3) bool {
+	const EPS = 1e-6
+	// 计算向量
+	v0 := c.Sub(a)
+	v1 := b.Sub(a)
+	v2 := p.Sub(a)
+
+	// 计算点积
+	dot00 := v0.Dot(v0)
+	dot01 := v0.Dot(v1)
+	dot02 := v0.Dot(v2)
+	dot11 := v1.Dot(v1)
+	dot12 := v1.Dot(v2)
+
+	// 计算重心坐标
+	invDenom := 1.0 / (dot00*dot11 - dot01*dot01)
+	u := (dot11*dot02 - dot01*dot12) * invDenom
+	v := (dot00*dot12 - dot01*dot02) * invDenom
+
+	// 检查重心坐标（允许浮点误差）
+	return (u >= -EPS) && (v >= -EPS) && (u+v <= 1+EPS)
+}
+
+// TriangleSegmentDistanceSquared 计算三角形到线段的最短距离平方
+func TriangleSegmentDistanceSquared(triangle Triangle, segStart, segEnd Vector3) float64 {
+	const EPS = 1e-6
+	// 检查三角形是否退化（面积为0）
+	ab := triangle.B.Sub(triangle.A)
+	ac := triangle.C.Sub(triangle.A)
+	normal := ab.Cross(ac)
+	if normal.Dot(normal) < EPS {
+		// 退化三角形：视为三个点
+		d1 := PointSegmentDistanceSquared(triangle.A, segStart, segEnd)
+		d2 := PointSegmentDistanceSquared(triangle.B, segStart, segEnd)
+		d3 := PointSegmentDistanceSquared(triangle.C, segStart, segEnd)
+		return math.Min(d1, math.Min(d2, d3))
+	}
+
+	// 计算线段方向
+	d := segEnd.Sub(segStart)
+	denom := normal.Dot(d)
+
+	var t float64
+	// 检查线段是否与平面平行
+	if math.Abs(denom) < EPS {
+		goto edgesline
+	}
+
+	// 计算交点参数 t
+	t = normal.Dot(triangle.A.Sub(segStart)) / denom
+	if t < 0 || t > 1 {
+		goto edgesline
+	}
+
+	// 检查交点是否在三角形内部
+	if PointInTriangle3D(segStart.Add(d.Mul(t)), triangle.A, triangle.B, triangle.C) {
+		return 0.0 // 距离为0
+	}
+
+edgesline:
+	// 计算三条边到线段的距离
+	edges := [3][2]Vector3{
 		{triangle.A, triangle.B},
 		{triangle.B, triangle.C},
 		{triangle.C, triangle.A},
 	}
-
+	minDistSq := math.Inf(1)
 	for _, edge := range edges {
-		if o.lineSegmentDistance(capsule.Start, capsule.End, edge.start, edge.end) < capsule.Radius {
-			return true
+		distSq := SegmentSegmentDistanceSquared(edge[0], edge[1], segStart, segEnd)
+		if distSq < minDistSq {
+			minDistSq = distSq
 		}
 	}
+	return minDistSq
+}
 
-	// 检查三角形顶点到胶囊体轴线的距离
-	vertices := []Vector3{triangle.A, triangle.B, triangle.C}
-	for _, vertex := range vertices {
-		if pointToLineSegmentDistance(vertex, capsule.Start, capsule.End) < capsule.Radius {
-			return true
-		}
-	}
+// capsuleIntersectsTriangle 胶囊体与三角形相交检测
+func (o *Octree) capsuleIntersectsTriangle(capsule Capsule, triangle Triangle) bool {
+	// 步骤2: 计算三角形到胶囊体轴线的最短距离平方
+	distSq := TriangleSegmentDistanceSquared(triangle, capsule.Start, capsule.End)
 
-	return false
+	// 步骤3: 比较距离与半径
+	return distSq <= capsule.Radius*capsule.Radius
+	// // 简化实现：检查胶囊体轴线到三角形各边的距离
+	// edges := []struct{ start, end Vector3 }{
+	// 	{triangle.A, triangle.B},
+	// 	{triangle.B, triangle.C},
+	// 	{triangle.C, triangle.A},
+	// }
+
+	// for _, edge := range edges {
+	// 	if o.lineSegmentDistance(capsule.Start, capsule.End, edge.start, edge.end) < capsule.Radius {
+	// 		return true
+	// 	}
+	// }
+
+	// // 检查三角形顶点到胶囊体轴线的距离
+	// vertices := []Vector3{triangle.A, triangle.B, triangle.C}
+	// for _, vertex := range vertices {
+	// 	if pointToLineSegmentDistance(vertex, capsule.Start, capsule.End) < capsule.Radius {
+	// 		return true
+	// 	}
+	// }
+
+	// return false
 }
 
 // capsuleIntersectsBox 胶囊体与立方体相交检测

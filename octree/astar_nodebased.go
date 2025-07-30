@@ -143,13 +143,16 @@ func NewNodeBasedAStarPathfinderWithParallel(octree *Octree, agent *Agent, stepS
 	if agent != nil {
 		agentRadius = agent.Radius
 	}
+	funnelAlgorithm := NewFunnelAlgorithm(agentRadius)
+	funnelAlgorithm.SetOctree(octree) // 设置八叉树引用
+	
 	pathfinder := &NodeBasedAStarPathfinder{
 		octree:           octree,
 		agent:            agent,
 		stepSize:         stepSize,
 		graph:            NewPathGraph(),
-		mortonResolution: 1024,                            // 10位精度
-		funnelAlgorithm:  NewFunnelAlgorithm(agentRadius), // 默认Agent半径
+		mortonResolution: 1024,         // 10位精度
+		funnelAlgorithm:  funnelAlgorithm,
 	}
 
 	// 构建寻路图
@@ -565,6 +568,7 @@ func (nba *NodeBasedAStarPathfinder) SetAgent(agent *Agent) {
 	// 更新漏斗算法的Agent半径
 	if agent != nil {
 		nba.funnelAlgorithm = NewFunnelAlgorithm(agent.Radius)
+		nba.funnelAlgorithm.SetOctree(nba.octree) // 设置八叉树引用
 	}
 }
 

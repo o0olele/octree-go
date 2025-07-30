@@ -177,7 +177,7 @@ func buildOctreeHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 保持兼容性，也构建传统的octree和pathfinder
 	if globalOctree != nil {
-		//globalOctree.Build()
+		globalOctree.Build()
 		//nodeBasedAstarPathfinder = octree.NewNodeBasedAStarPathfinderWithParallel(globalOctree, globalAgent, globalOctree.MinSize, true)
 	}
 
@@ -227,6 +227,8 @@ func findPathHandler(w http.ResponseWriter, r *http.Request) {
 		} else {
 			navigationQuery.SetAgent(nil) // 清除Agent，使用点检测
 		}
+
+		navigationQuery.SetOctree(globalOctree)
 
 		begTime := time.Now()
 		path = navigationQuery.FindPath(req.Start, req.End)

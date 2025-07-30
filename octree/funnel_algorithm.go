@@ -7,13 +7,20 @@ import (
 // FunnelAlgorithm 漏斗算法实现
 type FunnelAlgorithm struct {
 	agentRadius float64
+	octree      *Octree // 添加对八叉树的引用，用于路径检查
 }
 
 // NewFunnelAlgorithm 创建漏斗算法实例
 func NewFunnelAlgorithm(agentRadius float64) *FunnelAlgorithm {
 	return &FunnelAlgorithm{
 		agentRadius: agentRadius,
+		octree:      nil, // 默认不设置八叉树，需要外部设置
 	}
+}
+
+// SetOctree 设置八叉树引用
+func (fa *FunnelAlgorithm) SetOctree(octree *Octree) {
+	fa.octree = octree
 }
 
 // Portal 表示两个节点之间的通道
@@ -33,6 +40,7 @@ func (fa *FunnelAlgorithm) SmoothPath(pathNodes []*PathNode) []Vector3 {
 		return result
 	}
 
+	// return fa.stringPull(fa.buildPortals(pathNodes))
 	// 使用改进的直线优化算法
 	return fa.optimizePathWithLineOfSight(pathNodes)
 }
@@ -52,13 +60,16 @@ func (fa *FunnelAlgorithm) optimizePathWithLineOfSight(pathNodes []*PathNode) []
 
 	for current < len(pathNodes)-1 {
 		// 尝试找到最远的可直达节点
-		farthest := current + 1
-		for next := current + 2; next < len(pathNodes); next++ {
+		farthest := current
+		for next := current + 1; next < len(pathNodes); next++ {
 			if fa.canConnectDirectly(pathNodes[current], pathNodes[next]) {
 				farthest = next
-			} else {
-				break // 一旦不能直达，就停止
 			}
+		}
+
+		// 如果没有找到更远的节点，则只前进到下一个节点
+		if farthest == current {
+			farthest = current + 1
 		}
 
 		// 添加最远可达点
@@ -71,18 +82,25 @@ func (fa *FunnelAlgorithm) optimizePathWithLineOfSight(pathNodes []*PathNode) []
 
 // canConnectDirectly 检查两个节点是否可以直接连接
 func (fa *FunnelAlgorithm) canConnectDirectly(node1, node2 *PathNode) bool {
-	// 计算两个节点中心之间的距离
+	// 首先进行快速距离检查
 	distance := node1.Center.Distance(node2.Center)
-
-	// 如果距离太远，不太可能直接连接
-	maxDistance := math.Max(node1.Bounds.Size().Length(), node2.Bounds.Size().Length()) * 3
+	maxDistance := math.Max(node1.Bounds.Size().Length(), node2.Bounds.Size().Length()) * 10 // 放宽距离限制
 	if distance > maxDistance {
 		return false
 	}
 
-	// 检查路径上是否有中间节点可以作为桥梁
-	// 这里使用简化的启发式：如果两个节点的边界框扩展后相交，认为可以连接
-	expansion := math.Max(fa.agentRadius, math.Min(node1.Bounds.Size().Length(), node2.Bounds.Size().Length())*0.3)
+	// 如果有八叉树引用，使用更准确的路径检查
+	if fa.octree != nil {
+		// 检查两点间的路径是否畅通
+		if fa.isPathClear(node1.Center, node2.Center) {
+			return true
+		}
+		return false
+	}
+
+	// 如果没有八叉树引用，使用启发式方法
+	// 检查两个节点中心点之间是否可以直接连接
+	expansion := math.Max(fa.agentRadius, math.Min(node1.Bounds.Size().Length(), node2.Bounds.Size().Length())*0.5)
 
 	expandedBounds1 := AABB{
 		Min: Vector3{
@@ -110,14 +128,14 @@ func (fa *FunnelAlgorithm) canConnectDirectly(node1, node2 *PathNode) bool {
 		},
 	}
 
-	// 如果扩展后的边界框相交或接近，认为可以直接连接
+	// 如果扩展后的边界框相交，认为可以直接连接
 	if expandedBounds1.Intersects(expandedBounds2) {
 		return true
 	}
 
-	// 计算边界框之间的最小距离
+	// 更宽松的间隙检查
 	minDistance := fa.calculateAABBDistance(node1.Bounds, node2.Bounds)
-	allowedGap := expansion * 0.5
+	allowedGap := expansion * 2 // 放宽允许的间隙
 
 	return minDistance <= allowedGap
 }
@@ -135,6 +153,52 @@ func (fa *FunnelAlgorithm) calculateAABBDistance(aabb1, aabb2 AABB) float64 {
 	dz := math.Max(0, math.Max(aabb1.Min.Z-aabb2.Max.Z, aabb2.Min.Z-aabb1.Max.Z))
 
 	return math.Sqrt(dx*dx + dy*dy + dz*dz)
+}
+
+// isPathClear 检查两点之间的路径是否畅通
+func (fa *FunnelAlgorithm) isPathClear(start, end Vector3) bool {
+	if fa.octree == nil {
+		return true // 如果没有八叉树，假设路径畅通
+	}
+
+	// 计算方向向量和距离
+	direction := end.Sub(start)
+	distance := direction.Length()
+
+	if distance < 0.001 { // 距离太近，认为是同一点
+		return true
+	}
+
+	// 标准化方向向量
+	direction = direction.Scale(1.0 / distance)
+
+	// 使用适当的步长进行采样检查
+	stepSize := math.Max(0.1, fa.agentRadius*0.5)
+	steps := int(math.Ceil(distance / stepSize))
+
+	// 沿着路径进行采样检测
+	for i := 0; i <= steps; i++ {
+		t := float64(i) / float64(steps)
+		samplePoint := start.Add(direction.Scale(distance * t))
+
+		// 检查采样点是否被占用
+		if fa.octree.IsOccupied(samplePoint) {
+			return false
+		}
+
+		// 如果有Agent半径，还需要检查Agent碰撞
+		if fa.agentRadius > 0 {
+			agent := &Agent{
+				Radius: fa.agentRadius,
+				Height: fa.agentRadius * 2, // 简化的高度设置
+			}
+			if fa.octree.IsAgentOccupied(agent, samplePoint) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // SmoothPathSimple 最简化的路径平滑（备用方法）
@@ -305,7 +369,7 @@ func (fa *FunnelAlgorithm) stringPull(portals []Portal) []Vector3 {
 				portalLeft = apex
 				portalRight = apex
 				leftIndex = rightIndex
-				rightIndex = rightIndex
+				// rightIndex = rightIndex // 删除自赋值
 
 				// 重启扫描
 				i = rightIndex
@@ -327,7 +391,7 @@ func (fa *FunnelAlgorithm) stringPull(portals []Portal) []Vector3 {
 				// 重置漏斗
 				portalLeft = apex
 				portalRight = apex
-				leftIndex = leftIndex
+				leftIndex = leftIndex // 这里应该是正确的，保持原样
 				rightIndex = leftIndex
 
 				// 重启扫描

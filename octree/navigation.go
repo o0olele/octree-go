@@ -85,6 +85,10 @@ func (nq *NavigationQuery) SetAgent(agent *Agent) {
 	}
 }
 
+func (nq *NavigationQuery) SetOctree(octree *Octree) {
+	nq.funnelAlgorithm.SetOctree(octree)
+}
+
 // GetAgent 获取代理
 func (nq *NavigationQuery) GetAgent() *Agent {
 	return nq.agent
