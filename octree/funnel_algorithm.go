@@ -1,20 +1,21 @@
 package octree
 
 import (
+	"fmt"
 	"math"
 )
 
 // FunnelAlgorithm 漏斗算法实现
 type FunnelAlgorithm struct {
-	agentRadius float64
-	octree      *Octree // 添加对八叉树的引用，用于路径检查
+	agent  *Agent
+	octree *Octree // 添加对八叉树的引用，用于路径检查
 }
 
 // NewFunnelAlgorithm 创建漏斗算法实例
-func NewFunnelAlgorithm(agentRadius float64) *FunnelAlgorithm {
+func NewFunnelAlgorithm(agent *Agent) *FunnelAlgorithm {
 	return &FunnelAlgorithm{
-		agentRadius: agentRadius,
-		octree:      nil, // 默认不设置八叉树，需要外部设置
+		agent:  agent,
+		octree: nil, // 默认不设置八叉树，需要外部设置
 	}
 }
 
@@ -31,14 +32,6 @@ type Portal struct {
 
 // SmoothPath 使用简化的漏斗算法平滑路径
 func (fa *FunnelAlgorithm) SmoothPath(pathNodes []*PathNode) []Vector3 {
-	if len(pathNodes) <= 2 {
-		// 对于短路径，直接返回节点中心
-		result := make([]Vector3, len(pathNodes))
-		for i, node := range pathNodes {
-			result[i] = node.Center
-		}
-		return result
-	}
 
 	// return fa.stringPull(fa.buildPortals(pathNodes))
 	// 使用改进的直线优化算法
@@ -83,24 +76,25 @@ func (fa *FunnelAlgorithm) optimizePathWithLineOfSight(pathNodes []*PathNode) []
 // canConnectDirectly 检查两个节点是否可以直接连接
 func (fa *FunnelAlgorithm) canConnectDirectly(node1, node2 *PathNode) bool {
 	// 首先进行快速距离检查
-	distance := node1.Center.Distance(node2.Center)
-	maxDistance := math.Max(node1.Bounds.Size().Length(), node2.Bounds.Size().Length()) * 10 // 放宽距离限制
-	if distance > maxDistance {
-		return false
-	}
+	// distance := node1.Center.Distance(node2.Center)
+	// maxDistance := math.Max(node1.Bounds.Size().Length(), node2.Bounds.Size().Length()) * 10 // 放宽距离限制
+	// if distance > maxDistance {
+	// 	return false
+	// }
 
 	// 如果有八叉树引用，使用更准确的路径检查
 	if fa.octree != nil {
 		// 检查两点间的路径是否畅通
-		if fa.isPathClear(node1.Center, node2.Center) {
-			return true
-		}
-		return false
+		return fa.isPathClear(node1.Center, node2.Center)
 	}
 
 	// 如果没有八叉树引用，使用启发式方法
 	// 检查两个节点中心点之间是否可以直接连接
-	expansion := math.Max(fa.agentRadius, math.Min(node1.Bounds.Size().Length(), node2.Bounds.Size().Length())*0.5)
+	agentRadius := 0.4
+	if fa.agent != nil {
+		agentRadius = fa.agent.Radius
+	}
+	expansion := math.Max(agentRadius, math.Min(node1.Bounds.Size().Length(), node2.Bounds.Size().Length())*0.5)
 
 	expandedBounds1 := AABB{
 		Min: Vector3{
@@ -172,8 +166,12 @@ func (fa *FunnelAlgorithm) isPathClear(start, end Vector3) bool {
 	// 标准化方向向量
 	direction = direction.Scale(1.0 / distance)
 
+	agentRadius := 0.4
+	if fa.agent != nil {
+		agentRadius = fa.agent.Radius
+	}
 	// 使用适当的步长进行采样检查
-	stepSize := math.Max(0.1, fa.agentRadius*0.5)
+	stepSize := math.Max(0.1, agentRadius*0.6)
 	steps := int(math.Ceil(distance / stepSize))
 
 	// 沿着路径进行采样检测
@@ -181,52 +179,18 @@ func (fa *FunnelAlgorithm) isPathClear(start, end Vector3) bool {
 		t := float64(i) / float64(steps)
 		samplePoint := start.Add(direction.Scale(distance * t))
 
-		// 检查采样点是否被占用
-		if fa.octree.IsOccupied(samplePoint) {
+		// 如果有Agent半径，还需要检查Agent碰撞
+		occupied := fa.octree.IsAgentOccupied(fa.agent, samplePoint)
+		if Log {
+			fmt.Println(start, end, fa.agent, samplePoint, occupied)
+		}
+		if occupied {
 			return false
 		}
 
-		// 如果有Agent半径，还需要检查Agent碰撞
-		if fa.agentRadius > 0 {
-			agent := &Agent{
-				Radius: fa.agentRadius,
-				Height: fa.agentRadius * 2, // 简化的高度设置
-			}
-			if fa.octree.IsAgentOccupied(agent, samplePoint) {
-				return false
-			}
-		}
 	}
 
 	return true
-}
-
-// SmoothPathSimple 最简化的路径平滑（备用方法）
-func (fa *FunnelAlgorithm) SmoothPathSimple(pathNodes []*PathNode) []Vector3 {
-	if len(pathNodes) <= 2 {
-		result := make([]Vector3, len(pathNodes))
-		for i, node := range pathNodes {
-			result[i] = node.Center
-		}
-		return result
-	}
-
-	// 使用更保守的跳跃策略
-	smoothed := []Vector3{pathNodes[0].Center}
-	i := 0
-
-	for i < len(pathNodes)-1 {
-		// 只尝试跳过一个节点
-		if i+2 < len(pathNodes) && fa.canConnectDirectly(pathNodes[i], pathNodes[i+2]) {
-			smoothed = append(smoothed, pathNodes[i+2].Center)
-			i += 2
-		} else {
-			smoothed = append(smoothed, pathNodes[i+1].Center)
-			i++
-		}
-	}
-
-	return smoothed
 }
 
 // 以下是原有的复杂漏斗算法实现，保留作为备用
