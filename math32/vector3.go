@@ -60,3 +60,7 @@ func (v Vector3) Normalize() Vector3 {
 func (v Vector3) String() string {
 	return fmt.Sprintf("[%2f,%2f,%2f]", v.X, v.Y, v.Z)
 }
+
+func (v Vector3) Hash() uint64 {
+	return uint64(v.X*100)<<32 | uint64(v.Y*100)<<16 | uint64(v.Z*100)
+}
