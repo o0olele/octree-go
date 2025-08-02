@@ -2,22 +2,23 @@ package nodebase
 
 import (
 	"container/heap"
-	"math"
 
+	"github.com/o0olele/octree-go/geometry"
+	"github.com/o0olele/octree-go/math32"
 	"github.com/o0olele/octree-go/octree"
 )
 
 // Node represents a node in the game map
 type Node struct {
 	Id     uint32
-	AABB   octree.AABB
+	AABB   geometry.AABB
 	Edges  []*Connector
 	Octree *octree.Octree // Each node has its own octree for internal pathfinding
 
 	// A* pathfinding fields
-	GCost     float64
-	HCost     float64
-	FCost     float64
+	GCost     float32
+	HCost     float32
+	FCost     float32
 	Parent    *Node
 	HeapIndex int
 }
@@ -26,8 +27,8 @@ type Node struct {
 type Connector struct {
 	NodeA        *Node
 	NodeB        *Node
-	ConnectPoint octree.Vector3
-	Width        float64 // Width of the connection for agent passage
+	ConnectPoint math32.Vector3
+	Width        float32 // Width of the connection for agent passage
 }
 
 // CalculateFCost updates the F cost for A* pathfinding
@@ -36,12 +37,12 @@ func (r *Node) CalculateFCost() {
 }
 
 // GetCenter returns the center point of the node
-func (r *Node) GetCenter() octree.Vector3 {
+func (r *Node) GetCenter() math32.Vector3 {
 	return r.AABB.Center()
 }
 
 // ContainsPoint checks if a point is within this node
-func (r *Node) ContainsPoint(point octree.Vector3) bool {
+func (r *Node) ContainsPoint(point math32.Vector3) bool {
 	return r.AABB.Contains(point)
 }
 
@@ -74,7 +75,7 @@ func (ng *NodeGraph) AddConnector(connector *Connector) {
 }
 
 // FindNodeContaining finds the node that contains the given point
-func (ng *NodeGraph) FindNodeContaining(point octree.Vector3) *Node {
+func (ng *NodeGraph) FindNodeContaining(point math32.Vector3) *Node {
 	for _, node := range ng.Nodes {
 		if node.ContainsPoint(point) {
 			return node
@@ -128,7 +129,7 @@ func (nbp *NodeBasedPathfinder) SetAgent(agent *octree.Agent) {
 }
 
 // FindPath performs two-layer pathfinding
-func (nbp *NodeBasedPathfinder) FindPath(start, end octree.Vector3) []octree.Vector3 {
+func (nbp *NodeBasedPathfinder) FindPath(start, end math32.Vector3) []math32.Vector3 {
 	// Step 1: Find nodes containing start and end points
 	startNode := nbp.nodeGraph.FindNodeContaining(start)
 	endNode := nbp.nodeGraph.FindNodeContaining(end)
@@ -160,9 +161,9 @@ func (nbp *NodeBasedPathfinder) findNodePath(startNode, endNode *Node) []*Node {
 
 	// Reset all room A* data
 	for _, node := range nbp.nodeGraph.Nodes {
-		node.GCost = math.Inf(1)
+		node.GCost = math32.MaxFloat32
 		node.HCost = 0
-		node.FCost = math.Inf(1)
+		node.FCost = math32.MaxFloat32
 		node.Parent = nil
 		node.HeapIndex = -1
 	}
@@ -221,7 +222,7 @@ func (nbp *NodeBasedPathfinder) findNodePath(startNode, endNode *Node) []*Node {
 }
 
 // heuristic calculates the heuristic distance between two rooms
-func (nbp *NodeBasedPathfinder) heuristic(nodeA, nodeB *Node) float64 {
+func (nbp *NodeBasedPathfinder) heuristic(nodeA, nodeB *Node) float32 {
 	return nodeA.GetCenter().Distance(nodeB.GetCenter())
 }
 
@@ -239,10 +240,10 @@ func (nbp *NodeBasedPathfinder) reconstructNodePath(node *Node) []*Node {
 }
 
 // findPathInNode finds a path within a single node using its octree
-func (nbp *NodeBasedPathfinder) findPathInNode(node *Node, start, end octree.Vector3) []octree.Vector3 {
+func (nbp *NodeBasedPathfinder) findPathInNode(node *Node, start, end math32.Vector3) []math32.Vector3 {
 	if node.Octree == nil {
 		// If no octree, return direct path
-		return []octree.Vector3{start, end}
+		return []math32.Vector3{start, end}
 	}
 
 	// Create a pathfinder for this node's octree
@@ -255,12 +256,12 @@ func (nbp *NodeBasedPathfinder) findPathInNode(node *Node, start, end octree.Vec
 }
 
 // convertNodePathToWorldPath converts node-level path to detailed world coordinates
-func (nbp *NodeBasedPathfinder) convertNodePathToWorldPath(nodePath []*Node, start, end octree.Vector3) []octree.Vector3 {
+func (nbp *NodeBasedPathfinder) convertNodePathToWorldPath(nodePath []*Node, start, end math32.Vector3) []math32.Vector3 {
 	if len(nodePath) == 0 {
 		return nil
 	}
 
-	var worldPath []octree.Vector3
+	var worldPath []math32.Vector3
 	worldPath = append(worldPath, start)
 
 	// For each consecutive pair of nodes, find the connection point and path through it
@@ -275,7 +276,7 @@ func (nbp *NodeBasedPathfinder) convertNodePathToWorldPath(nodePath []*Node, sta
 		}
 
 		// Determine exit point
-		var exitPoint octree.Vector3
+		var exitPoint math32.Vector3
 
 		if i == 0 {
 			// First node: path from start to connector
