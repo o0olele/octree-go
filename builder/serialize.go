@@ -2,20 +2,32 @@ package builder
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/binary"
 	"encoding/gob"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
 	"github.com/o0olele/octree-go/geometry"
 )
 
+var useGzip = true
+
+func UseGzip(use bool) {
+	useGzip = use
+}
+
 func Load(filename string) (*NavigationData, error) {
 
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %v", err)
+	}
+
+	if useGzip {
+		content = Decompress(content)
 	}
 
 	buf := bytes.NewBuffer(content)
@@ -200,12 +212,40 @@ func Save(navData *NavigationData, filename string) error {
 
 	content := buf.Bytes()
 
+	if useGzip {
+		content = Compress(content)
+	}
+
 	err := os.WriteFile(filename, content, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to write file: %v", err)
 	}
 
 	return nil
+}
+
+func Decompress(content []byte) []byte {
+
+	buf := bytes.NewBuffer(content)
+	gzipReader, err := gzip.NewReader(buf)
+	if err != nil {
+		return nil
+	}
+
+	decompressed, err := io.ReadAll(gzipReader)
+	if err != nil {
+		return nil
+	}
+
+	return decompressed
+}
+
+func Compress(content []byte) []byte {
+	buf := bytes.NewBuffer(nil)
+	gzipWriter := gzip.NewWriter(buf)
+	gzipWriter.Write(content)
+	gzipWriter.Close()
+	return buf.Bytes()
 }
 
 // BuildAndSave 构建并保存导航数据（一步到位）
@@ -292,14 +332,6 @@ type NavigationFileInfo struct {
 	ModTime   time.Time     `json:"mod_time"`
 }
 
-// CompressNavigationData 压缩导航数据（可选功能）
-func CompressNavigationData(navData *NavigationData) *NavigationData {
-	// 这里可以实现数据压缩优化
-	// 例如：量化坐标、压缩边数据等
-	// 目前返回原始数据
-	return navData
-}
-
 // ValidateNavigationFile 验证导航文件的完整性
 func ValidateNavigationFile(filename string) error {
 	navData, err := Load(filename)
@@ -308,13 +340,6 @@ func ValidateNavigationFile(filename string) error {
 	}
 
 	return navData.Validate()
-}
-
-// ConvertOldFormat 转换旧格式到新格式（兼容性功能）
-func ConvertOldFormat(oldOctreeFile, oldPathfinderFile, newNavFile string) error {
-	// 这里可以实现从旧的分离文件格式转换到新的单文件格式
-	// 目前返回未实现错误
-	return fmt.Errorf("old format conversion not implemented")
 }
 
 // BatchBuild 批量构建多个导航文件
