@@ -2,7 +2,9 @@ package octree
 
 import (
 	"fmt"
-	"math"
+
+	"github.com/o0olele/octree-go/geometry"
+	"github.com/o0olele/octree-go/math32"
 )
 
 // FunnelAlgorithm 漏斗算法实现
@@ -26,12 +28,12 @@ func (fa *FunnelAlgorithm) SetOctree(octree *Octree) {
 
 // Portal 表示两个节点之间的通道
 type Portal struct {
-	Left  Vector3
-	Right Vector3
+	Left  math32.Vector3
+	Right math32.Vector3
 }
 
 // SmoothPath 使用简化的漏斗算法平滑路径
-func (fa *FunnelAlgorithm) SmoothPath(pathNodes []*PathNode) []Vector3 {
+func (fa *FunnelAlgorithm) SmoothPath(pathNodes []*PathNode) []math32.Vector3 {
 
 	// return fa.stringPull(fa.buildPortals(pathNodes))
 	// 使用改进的直线优化算法
@@ -39,16 +41,16 @@ func (fa *FunnelAlgorithm) SmoothPath(pathNodes []*PathNode) []Vector3 {
 }
 
 // optimizePathWithLineOfSight 使用视线优化算法简化路径
-func (fa *FunnelAlgorithm) optimizePathWithLineOfSight(pathNodes []*PathNode) []Vector3 {
+func (fa *FunnelAlgorithm) optimizePathWithLineOfSight(pathNodes []*PathNode) []math32.Vector3 {
 	if len(pathNodes) <= 2 {
-		result := make([]Vector3, len(pathNodes))
+		result := make([]math32.Vector3, len(pathNodes))
 		for i, node := range pathNodes {
 			result[i] = node.Center
 		}
 		return result
 	}
 
-	smoothed := []Vector3{pathNodes[0].Center}
+	smoothed := []math32.Vector3{pathNodes[0].Center}
 	current := 0
 
 	for current < len(pathNodes)-1 {
@@ -90,32 +92,32 @@ func (fa *FunnelAlgorithm) canConnectDirectly(node1, node2 *PathNode) bool {
 
 	// 如果没有八叉树引用，使用启发式方法
 	// 检查两个节点中心点之间是否可以直接连接
-	agentRadius := 0.4
+	agentRadius := float32(0.4)
 	if fa.agent != nil {
 		agentRadius = fa.agent.Radius
 	}
-	expansion := math.Max(agentRadius, math.Min(node1.Bounds.Size().Length(), node2.Bounds.Size().Length())*0.5)
+	expansion := math32.Max(agentRadius, math32.Min(node1.Bounds.Size().Length(), node2.Bounds.Size().Length())*0.5)
 
-	expandedBounds1 := AABB{
-		Min: Vector3{
+	expandedBounds1 := geometry.AABB{
+		Min: math32.Vector3{
 			X: node1.Bounds.Min.X - expansion,
 			Y: node1.Bounds.Min.Y - expansion,
 			Z: node1.Bounds.Min.Z - expansion,
 		},
-		Max: Vector3{
+		Max: math32.Vector3{
 			X: node1.Bounds.Max.X + expansion,
 			Y: node1.Bounds.Max.Y + expansion,
 			Z: node1.Bounds.Max.Z + expansion,
 		},
 	}
 
-	expandedBounds2 := AABB{
-		Min: Vector3{
+	expandedBounds2 := geometry.AABB{
+		Min: math32.Vector3{
 			X: node2.Bounds.Min.X - expansion,
 			Y: node2.Bounds.Min.Y - expansion,
 			Z: node2.Bounds.Min.Z - expansion,
 		},
-		Max: Vector3{
+		Max: math32.Vector3{
 			X: node2.Bounds.Max.X + expansion,
 			Y: node2.Bounds.Max.Y + expansion,
 			Z: node2.Bounds.Max.Z + expansion,
@@ -135,22 +137,22 @@ func (fa *FunnelAlgorithm) canConnectDirectly(node1, node2 *PathNode) bool {
 }
 
 // calculateAABBDistance 计算两个AABB之间的最小距离
-func (fa *FunnelAlgorithm) calculateAABBDistance(aabb1, aabb2 AABB) float64 {
+func (fa *FunnelAlgorithm) calculateAABBDistance(aabb1, aabb2 geometry.AABB) float32 {
 	// 如果相交，距离为0
 	if aabb1.Intersects(aabb2) {
 		return 0.0
 	}
 
 	// 计算每个轴上的距离
-	dx := math.Max(0, math.Max(aabb1.Min.X-aabb2.Max.X, aabb2.Min.X-aabb1.Max.X))
-	dy := math.Max(0, math.Max(aabb1.Min.Y-aabb2.Max.Y, aabb2.Min.Y-aabb1.Max.Y))
-	dz := math.Max(0, math.Max(aabb1.Min.Z-aabb2.Max.Z, aabb2.Min.Z-aabb1.Max.Z))
+	dx := math32.Max(0, math32.Max(aabb1.Min.X-aabb2.Max.X, aabb2.Min.X-aabb1.Max.X))
+	dy := math32.Max(0, math32.Max(aabb1.Min.Y-aabb2.Max.Y, aabb2.Min.Y-aabb1.Max.Y))
+	dz := math32.Max(0, math32.Max(aabb1.Min.Z-aabb2.Max.Z, aabb2.Min.Z-aabb1.Max.Z))
 
-	return math.Sqrt(dx*dx + dy*dy + dz*dz)
+	return math32.Sqrt(dx*dx + dy*dy + dz*dz)
 }
 
 // isPathClear 检查两点之间的路径是否畅通
-func (fa *FunnelAlgorithm) isPathClear(start, end Vector3) bool {
+func (fa *FunnelAlgorithm) isPathClear(start, end math32.Vector3) bool {
 	if fa.octree == nil {
 		return true // 如果没有八叉树，假设路径畅通
 	}
@@ -166,17 +168,17 @@ func (fa *FunnelAlgorithm) isPathClear(start, end Vector3) bool {
 	// 标准化方向向量
 	direction = direction.Scale(1.0 / distance)
 
-	agentRadius := 0.4
+	agentRadius := float32(0.4)
 	if fa.agent != nil {
 		agentRadius = fa.agent.Radius
 	}
 	// 使用适当的步长进行采样检查
-	stepSize := math.Max(0.1, agentRadius*0.6)
-	steps := int(math.Ceil(distance / stepSize))
+	stepSize := math32.Max(0.1, agentRadius*0.6)
+	steps := math32.CeilToInt(distance / stepSize)
 
 	// 沿着路径进行采样检测
 	for i := 0; i <= steps; i++ {
-		t := float64(i) / float64(steps)
+		t := float32(i) / float32(steps)
 		samplePoint := start.Add(direction.Scale(distance * t))
 
 		// 如果有Agent半径，还需要检查Agent碰撞
@@ -247,7 +249,7 @@ func (fa *FunnelAlgorithm) buildPortalBetweenNodes(node1, node2 *PathNode) Porta
 	if direction.Length() > 0 {
 		direction = direction.Scale(1.0 / direction.Length())
 	}
-	perpendicular := Vector3{X: -direction.Z, Y: 0, Z: direction.X}
+	perpendicular := math32.Vector3{X: -direction.Z, Y: 0, Z: direction.X}
 
 	left := midpoint.Add(perpendicular.Scale(avgSize))
 	right := midpoint.Sub(perpendicular.Scale(avgSize))
@@ -262,16 +264,16 @@ func (fa *FunnelAlgorithm) calculateBoundaryIntersection(node1, node2 *PathNode)
 	bounds2 := node2.Bounds
 
 	// 找到两个边界框的重叠区域
-	overlapMin := Vector3{
-		X: math.Max(bounds1.Min.X, bounds2.Min.X),
-		Y: math.Max(bounds1.Min.Y, bounds2.Min.Y),
-		Z: math.Max(bounds1.Min.Z, bounds2.Min.Z),
+	overlapMin := math32.Vector3{
+		X: math32.Max(bounds1.Min.X, bounds2.Min.X),
+		Y: math32.Max(bounds1.Min.Y, bounds2.Min.Y),
+		Z: math32.Max(bounds1.Min.Z, bounds2.Min.Z),
 	}
 
-	overlapMax := Vector3{
-		X: math.Min(bounds1.Max.X, bounds2.Max.X),
-		Y: math.Min(bounds1.Max.Y, bounds2.Max.Y),
-		Z: math.Min(bounds1.Max.Z, bounds2.Max.Z),
+	overlapMax := math32.Vector3{
+		X: math32.Min(bounds1.Max.X, bounds2.Max.X),
+		Y: math32.Min(bounds1.Max.Y, bounds2.Max.Y),
+		Z: math32.Min(bounds1.Max.Z, bounds2.Max.Z),
 	}
 
 	// 如果没有重叠，使用节点中心之间的中点
@@ -285,10 +287,10 @@ func (fa *FunnelAlgorithm) calculateBoundaryIntersection(node1, node2 *PathNode)
 	if direction.Length() > 0 {
 		direction = direction.Scale(1.0 / direction.Length())
 	}
-	perpendicular := Vector3{X: -direction.Z, Y: direction.Y, Z: direction.X}
+	perpendicular := math32.Vector3{X: -direction.Z, Y: direction.Y, Z: direction.X}
 
 	center := overlapMin.Add(overlapMax).Scale(0.5)
-	halfWidth := math.Min(overlapMax.X-overlapMin.X, overlapMax.Z-overlapMin.Z) * 0.5
+	halfWidth := math32.Min(overlapMax.X-overlapMin.X, overlapMax.Z-overlapMin.Z) * 0.5
 
 	left := center.Add(perpendicular.Scale(halfWidth))
 	right := center.Sub(perpendicular.Scale(halfWidth))
@@ -297,12 +299,12 @@ func (fa *FunnelAlgorithm) calculateBoundaryIntersection(node1, node2 *PathNode)
 }
 
 // stringPull 执行漏斗算法的核心逻辑（保留但不使用）
-func (fa *FunnelAlgorithm) stringPull(portals []Portal) []Vector3 {
+func (fa *FunnelAlgorithm) stringPull(portals []Portal) []math32.Vector3 {
 	if len(portals) <= 1 {
-		return []Vector3{}
+		return []math32.Vector3{}
 	}
 
-	path := make([]Vector3, 0, len(portals))
+	path := make([]math32.Vector3, 0, len(portals))
 
 	// 初始化漏斗
 	apex := portals[0].Left
@@ -377,7 +379,7 @@ func (fa *FunnelAlgorithm) stringPull(portals []Portal) []Vector3 {
 }
 
 // triArea2 计算三角形面积的两倍（用于判断点的相对位置）
-func (fa *FunnelAlgorithm) triArea2(a, b, c Vector3) float64 {
+func (fa *FunnelAlgorithm) triArea2(a, b, c math32.Vector3) float32 {
 	// 使用2D投影到XZ平面
 	ax := b.X - a.X
 	az := b.Z - a.Z
@@ -387,7 +389,7 @@ func (fa *FunnelAlgorithm) triArea2(a, b, c Vector3) float64 {
 }
 
 // vEqual 判断两个向量是否相等（带容差）
-func (fa *FunnelAlgorithm) vEqual(a, b Vector3) bool {
-	const epsilon = 0.001
+func (fa *FunnelAlgorithm) vEqual(a, b math32.Vector3) bool {
+	const epsilon = float32(0.001)
 	return a.Distance(b) < epsilon
 }

@@ -1,16 +1,17 @@
 package octree
 
 import (
-	"math"
+	"github.com/o0olele/octree-go/geometry"
+	"github.com/o0olele/octree-go/math32"
 )
 
 // OptimizedNavigationData 优化的导航数据结构，进一步减小文件大小
 type OptimizedNavigationData struct {
 	// 基本信息
-	Bounds   AABB    `json:"bounds"`
-	MaxDepth int     `json:"max_depth"`
-	MinSize  float64 `json:"min_size"`
-	StepSize float64 `json:"step_size"`
+	Bounds   geometry.AABB `json:"bounds"`
+	MaxDepth int           `json:"max_depth"`
+	MinSize  float32       `json:"min_size"`
+	StepSize float32       `json:"step_size"`
 
 	// 量化的节点数据
 	QuantizedNodes []QuantizedNode `json:"quantized_nodes"`
@@ -26,8 +27,8 @@ type OptimizedNavigationData struct {
 	CompressedGeometryData []byte `json:"compressed_geometry_data"`
 
 	// 量化参数
-	QuantizationScale  Vector3 `json:"quantization_scale"`
-	QuantizationOffset Vector3 `json:"quantization_offset"`
+	QuantizationScale  math32.Vector3 `json:"quantization_scale"`
+	QuantizationOffset math32.Vector3 `json:"quantization_offset"`
 }
 
 // QuantizedNode 量化的节点数据（使用16位整数存储坐标）
@@ -107,7 +108,7 @@ func DeoptimizeNavigationData(optimized *OptimizedNavigationData) *NavigationDat
 		edges[i] = CompactEdge{
 			NodeAID: int(cEdge.NodeAID),
 			NodeBID: int(cEdge.NodeBID),
-			Cost:    (float64(cEdge.Cost) / 65535) * maxCost,
+			Cost:    (float32(cEdge.Cost) / 65535) * maxCost,
 		}
 	}
 
@@ -131,9 +132,9 @@ func DeoptimizeNavigationData(optimized *OptimizedNavigationData) *NavigationDat
 }
 
 // calculateQuantizationParams 计算量化参数
-func calculateQuantizationParams(bounds AABB) (Vector3, Vector3) {
+func calculateQuantizationParams(bounds geometry.AABB) (math32.Vector3, math32.Vector3) {
 	size := bounds.Size()
-	scale := Vector3{
+	scale := math32.Vector3{
 		X: 65535.0 / size.X,
 		Y: 65535.0 / size.Y,
 		Z: 65535.0 / size.Z,
@@ -143,7 +144,7 @@ func calculateQuantizationParams(bounds AABB) (Vector3, Vector3) {
 }
 
 // quantizeNode 量化节点数据
-func quantizeNode(node CompactNode, scale, offset Vector3) QuantizedNode {
+func quantizeNode(node CompactNode, scale, offset math32.Vector3) QuantizedNode {
 	center := node.Center.Sub(offset)
 	size := node.Bounds.Size()
 
@@ -158,20 +159,20 @@ func quantizeNode(node CompactNode, scale, offset Vector3) QuantizedNode {
 }
 
 // dequantizeNode 反量化节点数据
-func dequantizeNode(qNode QuantizedNode, id int, scale, offset Vector3) CompactNode {
-	center := Vector3{
-		X: float64(qNode.CenterX)/scale.X + offset.X,
-		Y: float64(qNode.CenterY)/scale.Y + offset.Y,
-		Z: float64(qNode.CenterZ)/scale.Z + offset.Z,
+func dequantizeNode(qNode QuantizedNode, id int, scale, offset math32.Vector3) CompactNode {
+	center := math32.Vector3{
+		X: float32(qNode.CenterX)/scale.X + offset.X,
+		Y: float32(qNode.CenterY)/scale.Y + offset.Y,
+		Z: float32(qNode.CenterZ)/scale.Z + offset.Z,
 	}
 
-	size := Vector3{
-		X: float64(qNode.SizeX) / scale.X,
-		Y: float64(qNode.SizeY) / scale.Y,
-		Z: float64(qNode.SizeZ) / scale.Z,
+	size := math32.Vector3{
+		X: float32(qNode.SizeX) / scale.X,
+		Y: float32(qNode.SizeY) / scale.Y,
+		Z: float32(qNode.SizeZ) / scale.Z,
 	}
 
-	bounds := AABB{
+	bounds := geometry.AABB{
 		Min: center.Sub(size.Scale(0.5)),
 		Max: center.Add(size.Scale(0.5)),
 	}
@@ -184,8 +185,8 @@ func dequantizeNode(qNode QuantizedNode, id int, scale, offset Vector3) CompactN
 }
 
 // findMaxCost 找到最大成本值
-func findMaxCost(edges []CompactEdge) float64 {
-	maxCost := 0.0
+func findMaxCost(edges []CompactEdge) float32 {
+	maxCost := float32(0.0)
 	for _, edge := range edges {
 		if edge.Cost > maxCost {
 			maxCost = edge.Cost
@@ -195,10 +196,10 @@ func findMaxCost(edges []CompactEdge) float64 {
 }
 
 // findMaxCostFromBounds 从边界估算最大成本
-func findMaxCostFromBounds(bounds AABB) float64 {
+func findMaxCostFromBounds(bounds geometry.AABB) float32 {
 	// 估算最大可能的距离（对角线长度）
 	diagonal := bounds.Size()
-	return math.Sqrt(diagonal.X*diagonal.X + diagonal.Y*diagonal.Y + diagonal.Z*diagonal.Z)
+	return math32.Sqrt(diagonal.X*diagonal.X + diagonal.Y*diagonal.Y + diagonal.Z*diagonal.Z)
 }
 
 // compressGeometryData 压缩几何体数据
@@ -245,7 +246,7 @@ func (opt *OptimizedNavigationData) GetOptimizedDataSize() int {
 }
 
 // GetCompressionRatio 计算压缩比
-func GetCompressionRatio(original *NavigationData, optimized *OptimizedNavigationData) float64 {
+func GetCompressionRatio(original *NavigationData, optimized *OptimizedNavigationData) float32 {
 	originalSize := original.GetDataSize()
 	optimizedSize := optimized.GetOptimizedDataSize()
 
@@ -253,7 +254,7 @@ func GetCompressionRatio(original *NavigationData, optimized *OptimizedNavigatio
 		return 0
 	}
 
-	return float64(optimizedSize) / float64(originalSize)
+	return float32(optimizedSize) / float32(originalSize)
 }
 
 // AnalyzeOptimization 分析优化效果
@@ -276,22 +277,22 @@ func AnalyzeOptimization(original *NavigationData, optimized *OptimizedNavigatio
 type OptimizationAnalysis struct {
 	OriginalSize     int     `json:"original_size"`
 	OptimizedSize    int     `json:"optimized_size"`
-	CompressionRatio float64 `json:"compression_ratio"`
+	CompressionRatio float32 `json:"compression_ratio"`
 	SpaceSaved       int     `json:"space_saved"`
 	NodeCount        int     `json:"node_count"`
 	EdgeCount        int     `json:"edge_count"`
-	QuantizationLoss float64 `json:"quantization_loss"`
+	QuantizationLoss float32 `json:"quantization_loss"`
 }
 
 // calculateQuantizationLoss 计算量化损失
-func calculateQuantizationLoss(original *NavigationData, optimized *OptimizedNavigationData) float64 {
+func calculateQuantizationLoss(original *NavigationData, optimized *OptimizedNavigationData) float32 {
 	// 计算量化前后节点位置的平均误差
 	if len(original.Nodes) == 0 {
 		return 0
 	}
 
 	deoptimized := DeoptimizeNavigationData(optimized)
-	totalError := 0.0
+	totalError := float32(0.0)
 
 	for i, originalNode := range original.Nodes {
 		if i < len(deoptimized.Nodes) {
@@ -301,5 +302,5 @@ func calculateQuantizationLoss(original *NavigationData, optimized *OptimizedNav
 		}
 	}
 
-	return totalError / float64(len(original.Nodes))
+	return totalError / float32(len(original.Nodes))
 }

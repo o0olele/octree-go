@@ -5,6 +5,9 @@ import (
 	"encoding/gob"
 	"fmt"
 	"sort"
+
+	"github.com/o0olele/octree-go/geometry"
+	"github.com/o0olele/octree-go/math32"
 )
 
 // 文件格式常量
@@ -22,10 +25,10 @@ type NavigationFileHeader struct {
 // NavigationData 紧凑的导航数据结构，类似于Detour的数据格式
 type NavigationData struct {
 	// 基本信息
-	Bounds   AABB    `json:"bounds"`
-	MaxDepth int     `json:"max_depth"`
-	MinSize  float64 `json:"min_size"`
-	StepSize float64 `json:"step_size"`
+	Bounds   geometry.AABB `json:"bounds"`
+	MaxDepth int           `json:"max_depth"`
+	MinSize  float32       `json:"min_size"`
+	StepSize float32       `json:"step_size"`
 
 	// 节点和边数据
 	Nodes []CompactNode `json:"nodes"`
@@ -46,16 +49,16 @@ type NavigationData struct {
 
 // CompactNode 紧凑的节点数据结构
 type CompactNode struct {
-	ID     int     `json:"id"`
-	Center Vector3 `json:"center"`
-	Bounds AABB    `json:"bounds"`
+	ID     int            `json:"id"`
+	Center math32.Vector3 `json:"center"`
+	Bounds geometry.AABB  `json:"bounds"`
 }
 
 // CompactEdge 紧凑的边数据结构
 type CompactEdge struct {
 	NodeAID int     `json:"node_a_id"`
 	NodeBID int     `json:"node_b_id"`
-	Cost    float64 `json:"cost"`
+	Cost    float32 `json:"cost"`
 }
 
 // GetDataSize 计算导航数据的大小（字节）
@@ -192,39 +195,22 @@ func sortMortonNodes(nodes []MortonNodePair) {
 }
 
 // DeserializeGeometries 反序列化几何体数据
-func (nd *NavigationData) DeserializeGeometries() ([]Geometry, error) {
+func (nd *NavigationData) DeserializeGeometries() ([]geometry.Triangle, error) {
 	if len(nd.GeometryData) == 0 {
-		return []Geometry{}, nil
+		return []geometry.Triangle{}, nil
 	}
 
 	buf := bytes.NewBuffer(nd.GeometryData)
 	decoder := gob.NewDecoder(buf)
 
-	var geomData []SerializableGeometry
+	var geomData []geometry.Triangle
 	if err := decoder.Decode(&geomData); err != nil {
 		return nil, err
 	}
 
-	geometries := make([]Geometry, 0, len(geomData))
-	for _, sg := range geomData {
-		switch sg.Type {
-		case "triangle":
-			if triangle, ok := sg.Data.(Triangle); ok {
-				geometries = append(geometries, triangle)
-			}
-		case "box":
-			if box, ok := sg.Data.(Box); ok {
-				geometries = append(geometries, box)
-			}
-		case "capsule":
-			if capsule, ok := sg.Data.(Capsule); ok {
-				geometries = append(geometries, capsule)
-			}
-		case "convex_mesh":
-			if mesh, ok := sg.Data.(ConvexMesh); ok {
-				geometries = append(geometries, mesh)
-			}
-		}
+	geometries := make([]geometry.Triangle, 0, len(geomData))
+	for _, triangle := range geomData {
+		geometries = append(geometries, triangle)
 	}
 
 	return geometries, nil

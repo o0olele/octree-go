@@ -3,17 +3,19 @@ package octree
 import (
 	"encoding/json"
 	"fmt"
-	"math"
+
+	"github.com/o0olele/octree-go/geometry"
+	"github.com/o0olele/octree-go/math32"
 )
 
 // Agent 表示寻路的智能体，用胶囊体表示
 type Agent struct {
-	Radius float64 `json:"radius"` // 胶囊体半径
-	Height float64 `json:"height"` // 胶囊体高度（不包括两端的半球）
+	Radius float32 `json:"radius"` // 胶囊体半径
+	Height float32 `json:"height"` // 胶囊体高度（不包括两端的半球）
 }
 
 // NewAgent 创建新的Agent
-func NewAgent(radius, height float64) *Agent {
+func NewAgent(radius, height float32) *Agent {
 	return &Agent{
 		Radius: radius,
 		Height: height,
@@ -21,51 +23,50 @@ func NewAgent(radius, height float64) *Agent {
 }
 
 // GetCapsule 根据位置获取Agent的胶囊体表示
-func (a *Agent) GetCapsule(position Vector3) Capsule {
+func (a *Agent) GetCapsule(position math32.Vector3) geometry.Capsule {
 	// 胶囊体的轴线沿Y轴方向
-	start := Vector3{position.X, position.Y + a.Radius, position.Z}
-	end := Vector3{position.X, position.Y + a.Height + a.Radius, position.Z}
-	return Capsule{
+	start := math32.Vector3{
+		X: position.X,
+		Y: position.Y + a.Radius,
+		Z: position.Z,
+	}
+	end := math32.Vector3{
+		X: position.X,
+		Y: position.Y + a.Height + a.Radius,
+		Z: position.Z,
+	}
+	return geometry.Capsule{
 		Start:  start,
 		End:    end,
 		Radius: a.Radius,
 	}
 }
 
-func GetCapsuleAABB(position Vector3, radius float64, height float64) AABB {
-	start := Vector3{position.X, position.Y, position.Z}
-	end := Vector3{position.X, position.Y + height + 2*radius, position.Z}
-	return AABB{
-		Min: Vector3{start.X - radius, start.Y - radius, start.Z - radius},
-		Max: Vector3{end.X + radius, end.Y + radius, end.Z + radius},
-	}
-}
-
 // GetBounds 获取Agent在指定位置的包围盒
-func (a *Agent) GetBounds(position Vector3) AABB {
+func (a *Agent) GetBounds(position math32.Vector3) geometry.AABB {
 	return a.GetCapsule(position).GetBounds()
 }
 
 // OctreeNode 八叉树节点
 type OctreeNode struct {
-	Bounds     AABB           `json:"bounds"`
-	Children   [8]*OctreeNode `json:"children,omitempty"`
-	Geometries []Geometry     `json:"-"`
-	IsLeaf     bool           `json:"is_leaf"`
-	IsOccupied bool           `json:"is_occupied"`
-	Depth      int            `json:"depth"`
+	Bounds     geometry.AABB       `json:"bounds"`
+	Children   [8]*OctreeNode      `json:"children,omitempty"`
+	Triangles  []geometry.Triangle `json:"-"`
+	IsLeaf     bool                `json:"is_leaf"`
+	IsOccupied bool                `json:"is_occupied"`
+	Depth      int                 `json:"depth"`
 }
 
 // Octree 八叉树主结构
 type Octree struct {
-	Root       *OctreeNode `json:"root"`
-	MaxDepth   int         `json:"max_depth"`
-	MinSize    float64     `json:"min_size"`
-	geometries []Geometry
+	Root      *OctreeNode `json:"root"`
+	MaxDepth  int         `json:"max_depth"`
+	MinSize   float32     `json:"min_size"`
+	triangles []geometry.Triangle
 }
 
 // NewOctree 创建新的八叉树
-func NewOctree(bounds AABB, maxDepth int, minSize float64) *Octree {
+func NewOctree(bounds geometry.AABB, maxDepth int, minSize float32) *Octree {
 	return &Octree{
 		Root: &OctreeNode{
 			Bounds:     bounds,
@@ -73,24 +74,24 @@ func NewOctree(bounds AABB, maxDepth int, minSize float64) *Octree {
 			IsOccupied: false,
 			Depth:      0,
 		},
-		MaxDepth:   maxDepth,
-		MinSize:    minSize,
-		geometries: make([]Geometry, 0),
+		MaxDepth:  maxDepth,
+		MinSize:   minSize,
+		triangles: make([]geometry.Triangle, 0),
 	}
 }
 
-// AddGeometry 添加几何体到八叉树
-func (o *Octree) AddGeometry(geom Geometry) {
-	o.geometries = append(o.geometries, geom)
-	o.insertGeometry(o.Root, geom)
+// AddTriangle 添加三角形面到八叉树
+func (o *Octree) AddTriangle(triangle geometry.Triangle) {
+	o.triangles = append(o.triangles, triangle)
+	o.insertTriangle(o.Root, triangle)
 }
 
-func (o *Octree) insertGeometry(node *OctreeNode, geom Geometry) {
-	if !geom.IntersectsAABB(node.Bounds) {
+func (o *Octree) insertTriangle(node *OctreeNode, triangle geometry.Triangle) {
+	if !triangle.IntersectsAABB(node.Bounds) {
 		return
 	}
 
-	node.Geometries = append(node.Geometries, geom)
+	node.Triangles = append(node.Triangles, triangle)
 	node.IsOccupied = true
 
 	// 如果节点是叶子且达到分割条件，则分割
@@ -102,7 +103,7 @@ func (o *Octree) insertGeometry(node *OctreeNode, geom Geometry) {
 	if !node.IsLeaf {
 		for _, child := range node.Children {
 			if child != nil {
-				o.insertGeometry(child, geom)
+				o.insertTriangle(child, triangle)
 			}
 		}
 	}
@@ -112,21 +113,21 @@ func (o *Octree) subdivide(node *OctreeNode) {
 	center := node.Bounds.Center()
 	size := node.Bounds.Size().Scale(0.5)
 
-	positions := [8]Vector3{
-		{node.Bounds.Min.X, node.Bounds.Min.Y, node.Bounds.Min.Z}, // 000
-		{center.X, node.Bounds.Min.Y, node.Bounds.Min.Z},          // 100
-		{node.Bounds.Min.X, center.Y, node.Bounds.Min.Z},          // 010
-		{center.X, center.Y, node.Bounds.Min.Z},                   // 110
-		{node.Bounds.Min.X, node.Bounds.Min.Y, center.Z},          // 001
-		{center.X, node.Bounds.Min.Y, center.Z},                   // 101
-		{node.Bounds.Min.X, center.Y, center.Z},                   // 011
-		{center.X, center.Y, center.Z},                            // 111
+	positions := [8]math32.Vector3{
+		{X: node.Bounds.Min.X, Y: node.Bounds.Min.Y, Z: node.Bounds.Min.Z}, // 000
+		{X: center.X, Y: node.Bounds.Min.Y, Z: node.Bounds.Min.Z},          // 100
+		{X: node.Bounds.Min.X, Y: center.Y, Z: node.Bounds.Min.Z},          // 010
+		{X: center.X, Y: center.Y, Z: node.Bounds.Min.Z},                   // 110
+		{X: node.Bounds.Min.X, Y: node.Bounds.Min.Y, Z: center.Z},          // 001
+		{X: center.X, Y: node.Bounds.Min.Y, Z: center.Z},                   // 101
+		{X: node.Bounds.Min.X, Y: center.Y, Z: center.Z},                   // 011
+		{X: center.X, Y: center.Y, Z: center.Z},                            // 111
 	}
 
 	for i := 0; i < 8; i++ {
-		childBounds := AABB{
-			positions[i],
-			positions[i].Add(size),
+		childBounds := geometry.AABB{
+			Min: positions[i],
+			Max: positions[i].Add(size),
 		}
 
 		node.Children[i] = &OctreeNode{
@@ -142,18 +143,18 @@ func (o *Octree) subdivide(node *OctreeNode) {
 
 // Build 构建八叉树
 func (o *Octree) Build() {
-	for _, geom := range o.geometries {
-		o.insertGeometry(o.Root, geom)
+	for _, triangle := range o.triangles {
+		o.insertTriangle(o.Root, triangle)
 	}
 }
 
 // IsOccupied 检查指定位置是否被占用
-func (o *Octree) IsOccupied(point Vector3) bool {
+func (o *Octree) IsOccupied(point math32.Vector3) bool {
 	return o.isOccupiedRecursive(o.Root, point)
 }
 
 // IsAgentOccupied 检查Agent在指定位置是否与几何体碰撞
-func (o *Octree) IsAgentOccupied(agent *Agent, position Vector3) bool {
+func (o *Octree) IsAgentOccupied(agent *Agent, position math32.Vector3) bool {
 	if agent == nil {
 		return o.IsOccupied(position)
 	}
@@ -162,7 +163,7 @@ func (o *Octree) IsAgentOccupied(agent *Agent, position Vector3) bool {
 	return o.isAgentOccupiedRecursive(o.Root, agentCapsule)
 }
 
-func (o *Octree) isAgentOccupiedRecursive(node *OctreeNode, agentCapsule Capsule) bool {
+func (o *Octree) isAgentOccupiedRecursive(node *OctreeNode, agentCapsule geometry.Capsule) bool {
 	// 检查Agent的包围盒是否与节点相交
 	agentBounds := agentCapsule.GetBounds()
 	if !o.aabbIntersects(node.Bounds, agentBounds) {
@@ -174,8 +175,8 @@ func (o *Octree) isAgentOccupiedRecursive(node *OctreeNode, agentCapsule Capsule
 			return false
 		}
 		// 检查Agent胶囊体是否与节点中的几何体碰撞
-		for _, geom := range node.Geometries {
-			if o.capsuleIntersectsGeometry(agentCapsule, geom) {
+		for _, triangle := range node.Triangles {
+			if o.capsuleIntersectsTriangle(agentCapsule, triangle) {
 				return true
 			}
 		}
@@ -193,34 +194,17 @@ func (o *Octree) isAgentOccupiedRecursive(node *OctreeNode, agentCapsule Capsule
 }
 
 // aabbIntersects 检查两个AABB是否相交
-func (o *Octree) aabbIntersects(a, b AABB) bool {
+func (o *Octree) aabbIntersects(a, b geometry.AABB) bool {
 	return !(a.Max.X < b.Min.X || a.Min.X > b.Max.X ||
 		a.Max.Y < b.Min.Y || a.Min.Y > b.Max.Y ||
 		a.Max.Z < b.Min.Z || a.Min.Z > b.Max.Z)
 }
 
-// capsuleIntersectsGeometry 检查胶囊体是否与几何体相交
-func (o *Octree) capsuleIntersectsGeometry(capsule Capsule, geom Geometry) bool {
-	switch g := geom.(type) {
-	case Triangle:
-		return o.capsuleIntersectsTriangle(capsule, g)
-	case Box:
-		return o.capsuleIntersectsBox(capsule, g)
-	case Capsule:
-		return o.capsuleIntersectsCapsule(capsule, g)
-	case ConvexMesh:
-		return o.capsuleIntersectsConvexMesh(capsule, g)
-	default:
-		// 使用简化的包围盒检测
-		return o.aabbIntersects(capsule.GetBounds(), geom.GetBounds())
-	}
-}
-
 var Log bool
 
 // capsuleIntersectsTriangle 胶囊体与三角形相交检测
-func (o *Octree) capsuleIntersectsTriangle(capsule Capsule, triangle Triangle) bool {
-	intersect, _, _, _ := CapsuleTriangleIntersect(capsule, triangle.A, triangle.B, triangle.C)
+func (o *Octree) capsuleIntersectsTriangle(capsule geometry.Capsule, triangle geometry.Triangle) bool {
+	intersect, _, _, _ := geometry.CapsuleTriangleIntersect(capsule, triangle.A, triangle.B, triangle.C)
 	return intersect
 	// // 简化实现：检查胶囊体轴线到三角形各边的距离
 	// edges := []struct{ start, end Vector3 }{
@@ -246,121 +230,15 @@ func (o *Octree) capsuleIntersectsTriangle(capsule Capsule, triangle Triangle) b
 	// return false
 }
 
-// capsuleIntersectsBox 胶囊体与立方体相交检测
-func (o *Octree) capsuleIntersectsBox(capsule Capsule, box Box) bool {
-	boxBounds := box.GetBounds()
-
-	// 计算胶囊体轴线上最接近立方体的点
-	closestPoint := o.closestPointOnLineSegmentToAABB(capsule.Start, capsule.End, boxBounds)
-
-	// 计算立方体上最接近该点的点
-	closestOnBox := Vector3{
-		math.Max(boxBounds.Min.X, math.Min(closestPoint.X, boxBounds.Max.X)),
-		math.Max(boxBounds.Min.Y, math.Min(closestPoint.Y, boxBounds.Max.Y)),
-		math.Max(boxBounds.Min.Z, math.Min(closestPoint.Z, boxBounds.Max.Z)),
-	}
-
-	// 检查距离是否小于胶囊体半径
-	return closestPoint.Distance(closestOnBox) < capsule.Radius
-}
-
 // capsuleIntersectsCapsule 胶囊体与胶囊体相交检测
-func (o *Octree) capsuleIntersectsCapsule(capsule1, capsule2 Capsule) bool {
+func (o *Octree) capsuleIntersectsCapsule(capsule1, capsule2 geometry.Capsule) bool {
 	// 计算两个线段之间的最短距离
 	distance := o.lineSegmentDistance(capsule1.Start, capsule1.End, capsule2.Start, capsule2.End)
 	return distance < (capsule1.Radius + capsule2.Radius)
 }
 
-// capsuleIntersectsConvexMesh 胶囊体与凸包网格相交检测
-func (o *Octree) capsuleIntersectsConvexMesh(capsule Capsule, mesh ConvexMesh) bool {
-	// 首先检查包围盒相交
-	if !o.aabbIntersects(capsule.GetBounds(), mesh.GetBounds()) {
-		return false
-	}
-
-	// 检查胶囊体的起点和终点是否在凸包内
-	if mesh.ContainsPoint(capsule.Start) || mesh.ContainsPoint(capsule.End) {
-		return true
-	}
-
-	// 检查胶囊体轴线是否与凸包的任何面相交，并且距离小于半径
-	for _, face := range mesh.Faces {
-		if len(face) < 3 {
-			continue
-		}
-
-		// 检查胶囊轴线到面上各边的距离
-		for i := 0; i < len(face); i++ {
-			v1 := mesh.Vertices[face[i]]
-			v2 := mesh.Vertices[face[(i+1)%len(face)]]
-
-			// 计算胶囊轴线到面边的最短距离
-			distance := o.lineSegmentDistance(capsule.Start, capsule.End, v1, v2)
-			if distance < capsule.Radius {
-				return true
-			}
-		}
-
-		// 检查胶囊轴线上的点到面的距离
-		if o.capsuleAxisIntersectsFace(capsule, mesh, face) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// capsuleAxisIntersectsFace 检查胶囊轴线是否与面相交且距离小于半径
-func (o *Octree) capsuleAxisIntersectsFace(capsule Capsule, mesh ConvexMesh, face []int) bool {
-	if len(face) < 3 {
-		return false
-	}
-
-	// 获取面的三个顶点计算法向量
-	v0 := mesh.Vertices[face[0]]
-	v1 := mesh.Vertices[face[1]]
-	v2 := mesh.Vertices[face[2]]
-
-	// 计算面的法向量
-	edge1 := v1.Sub(v0)
-	edge2 := v2.Sub(v0)
-	normal := edge1.Cross(edge2)
-
-	length := normal.Length()
-	if length == 0 {
-		return false // 退化面
-	}
-	normal = normal.Scale(1.0 / length)
-
-	// 计算胶囊轴线上多个点到面的距离
-	axisLength := capsule.End.Sub(capsule.Start).Length()
-	if axisLength == 0 {
-		// 胶囊退化为球体
-		distance := math.Abs(capsule.Start.Sub(v0).Dot(normal))
-		return distance < capsule.Radius
-	}
-
-	// 沿轴线采样多个点
-	samples := int(math.Max(3, axisLength*2)) // 至少3个采样点
-	for i := 0; i <= samples; i++ {
-		t := float64(i) / float64(samples)
-		point := capsule.Start.Add(capsule.End.Sub(capsule.Start).Scale(t))
-
-		// 计算点到面的距离
-		distance := math.Abs(point.Sub(v0).Dot(normal))
-		if distance < capsule.Radius {
-			// 还需要检查点的投影是否在面的边界内
-			if o.pointProjectionInFace(point, mesh, face, normal) {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
 // pointProjectionInFace 检查点在面上的投影是否在面的边界内
-func (o *Octree) pointProjectionInFace(point Vector3, mesh ConvexMesh, face []int, normal Vector3) bool {
+func (o *Octree) pointProjectionInFace(point math32.Vector3, mesh geometry.ConvexMesh, face []int, normal math32.Vector3) bool {
 	if len(face) < 3 {
 		return false
 	}
@@ -392,27 +270,27 @@ func (o *Octree) pointProjectionInFace(point Vector3, mesh ConvexMesh, face []in
 }
 
 // lineSegmentDistance 计算两个线段之间的最短距离
-func (o *Octree) lineSegmentDistance(seg1Start, seg1End, seg2Start, seg2End Vector3) float64 {
+func (o *Octree) lineSegmentDistance(seg1Start, seg1End, seg2Start, seg2End math32.Vector3) float32 {
 	// 简化实现，使用点到线段距离的近似
-	dist1 := math.Min(
-		pointToLineSegmentDistance(seg1Start, seg2Start, seg2End),
-		pointToLineSegmentDistance(seg1End, seg2Start, seg2End),
+	dist1 := math32.Min(
+		geometry.PointToLineSegmentDistance(seg1Start, seg2Start, seg2End),
+		geometry.PointToLineSegmentDistance(seg1End, seg2Start, seg2End),
 	)
-	dist2 := math.Min(
-		pointToLineSegmentDistance(seg2Start, seg1Start, seg1End),
-		pointToLineSegmentDistance(seg2End, seg1Start, seg1End),
+	dist2 := math32.Min(
+		geometry.PointToLineSegmentDistance(seg2Start, seg1Start, seg1End),
+		geometry.PointToLineSegmentDistance(seg2End, seg1Start, seg1End),
 	)
-	return math.Min(dist1, dist2)
+	return math32.Min(dist1, dist2)
 }
 
 // closestPointOnLineSegmentToAABB 计算线段上最接近AABB的点
-func (o *Octree) closestPointOnLineSegmentToAABB(lineStart, lineEnd Vector3, aabb AABB) Vector3 {
+func (o *Octree) closestPointOnLineSegmentToAABB(lineStart, lineEnd math32.Vector3, aabb geometry.AABB) math32.Vector3 {
 	center := aabb.Center()
 	return o.closestPointOnLineSegment(center, lineStart, lineEnd)
 }
 
 // closestPointOnLineSegment 计算线段上最接近给定点的点
-func (o *Octree) closestPointOnLineSegment(point, lineStart, lineEnd Vector3) Vector3 {
+func (o *Octree) closestPointOnLineSegment(point, lineStart, lineEnd math32.Vector3) math32.Vector3 {
 	lineVec := lineEnd.Sub(lineStart)
 	pointVec := point.Sub(lineStart)
 
@@ -422,12 +300,12 @@ func (o *Octree) closestPointOnLineSegment(point, lineStart, lineEnd Vector3) Ve
 	}
 
 	t := pointVec.Dot(lineVec) / lineVec.Dot(lineVec)
-	t = math.Max(0, math.Min(1, t))
+	t = math32.Max(0, math32.Min(1, t))
 
 	return lineStart.Add(lineVec.Scale(t))
 }
 
-func (o *Octree) isOccupiedRecursive(node *OctreeNode, point Vector3) bool {
+func (o *Octree) isOccupiedRecursive(node *OctreeNode, point math32.Vector3) bool {
 	if !node.Bounds.Contains(point) {
 		return false
 	}
@@ -437,8 +315,8 @@ func (o *Octree) isOccupiedRecursive(node *OctreeNode, point Vector3) bool {
 			return false
 		}
 		// 检查所有几何体
-		for _, geom := range node.Geometries {
-			if geom.ContainsPoint(point) {
+		for _, triangle := range node.Triangles {
+			if triangle.ContainsPoint(point) {
 				return true
 			}
 		}
@@ -456,7 +334,7 @@ func (o *Octree) isOccupiedRecursive(node *OctreeNode, point Vector3) bool {
 }
 
 // isPathClear 检查两点之间的路径是否畅通
-func (o *Octree) isPathClear(agent *Agent, start, end Vector3) bool {
+func (o *Octree) isPathClear(agent *Agent, start, end math32.Vector3) bool {
 
 	// 计算方向向量和距离
 	direction := end.Sub(start)
@@ -469,17 +347,17 @@ func (o *Octree) isPathClear(agent *Agent, start, end Vector3) bool {
 	// 标准化方向向量
 	direction = direction.Scale(1.0 / distance)
 
-	agentRadius := 0.4
+	agentRadius := float32(0.4)
 	if agent != nil {
 		agentRadius = agent.Radius
 	}
 	// 使用适当的步长进行采样检查
-	stepSize := math.Max(0.1, agentRadius*0.6)
-	steps := int(math.Ceil(distance / stepSize))
+	stepSize := math32.Max(0.1, agentRadius*0.6)
+	steps := math32.CeilToInt(distance / stepSize)
 
 	// 沿着路径进行采样检测
 	for i := 0; i <= steps; i++ {
-		t := float64(i) / float64(steps)
+		t := float32(i) / float32(steps)
 		samplePoint := start.Add(direction.Scale(distance * t))
 
 		// 如果有Agent半径，还需要检查Agent碰撞
@@ -500,11 +378,11 @@ func (o *Octree) isPathClear(agent *Agent, start, end Vector3) bool {
 type OctreeExport struct {
 	Root     *OctreeNodeExport `json:"root"`
 	MaxDepth int               `json:"max_depth"`
-	MinSize  float64           `json:"min_size"`
+	MinSize  float32           `json:"min_size"`
 }
 
 type OctreeNodeExport struct {
-	Bounds     AABB                `json:"bounds"`
+	Bounds     geometry.AABB       `json:"bounds"`
 	Children   []*OctreeNodeExport `json:"children,omitempty"`
 	IsLeaf     bool                `json:"is_leaf"`
 	IsOccupied bool                `json:"is_occupied"`

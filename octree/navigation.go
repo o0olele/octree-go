@@ -3,22 +3,24 @@ package octree
 import (
 	"container/heap"
 	"fmt"
-	"math"
 	"sort"
 	"time"
+
+	"github.com/o0olele/octree-go/geometry"
+	"github.com/o0olele/octree-go/math32"
 )
 
 // NavigationQuery 导航查询器，类似于Detour，只负责运行时查询
 type NavigationQuery struct {
 	navData  *NavigationData
 	agent    *Agent
-	stepSize float64
+	stepSize float32
 
 	// 缓存的几何体数据（用于碰撞检测）
-	geometries []Geometry
+	geometries []geometry.Triangle
 
 	// 空间查询优化
-	spatialCache map[Vector3]int // 位置到最近节点的缓存
+	spatialCache map[math32.Vector3]int // 位置到最近节点的缓存
 
 	// 漏斗算法
 	funnelAlgorithm *FunnelAlgorithm
@@ -29,10 +31,10 @@ type NavigationQuery struct {
 
 // PathPreferences 路径偏好配置
 type PathPreferences struct {
-	InteriorPathBonus    float64 // 内部路径奖励（降低成本的比例）
-	BoundaryPathPenalty  float64 // 边界路径惩罚（增加成本的比例）
-	DensityBonus         float64 // 高密度区域奖励
-	BoundaryThreshold    float64 // 边界阈值（相对于stepSize的倍数）
+	InteriorPathBonus    float32 // 内部路径奖励（降低成本的比例）
+	BoundaryPathPenalty  float32 // 边界路径惩罚（增加成本的比例）
+	DensityBonus         float32 // 高密度区域奖励
+	BoundaryThreshold    float32 // 边界阈值（相对于stepSize的倍数）
 	EnablePathPreference bool    // 是否启用路径偏好
 }
 
@@ -66,7 +68,7 @@ func NewNavigationQuery(navData *NavigationData) (*NavigationQuery, error) {
 		navData:         navData,
 		stepSize:        navData.StepSize,
 		geometries:      geometries,
-		spatialCache:    make(map[Vector3]int),
+		spatialCache:    make(map[math32.Vector3]int),
 		funnelAlgorithm: NewFunnelAlgorithm(nil), // 默认Agent半径
 		pathPreferences: DefaultPathPreferences(),
 	}
@@ -95,17 +97,17 @@ func (nq *NavigationQuery) GetAgent() *Agent {
 }
 
 // SetStepSize 设置步长
-func (nq *NavigationQuery) SetStepSize(stepSize float64) {
+func (nq *NavigationQuery) SetStepSize(stepSize float32) {
 	nq.stepSize = stepSize
 }
 
 // GetStepSize 获取步长
-func (nq *NavigationQuery) GetStepSize() float64 {
+func (nq *NavigationQuery) GetStepSize() float32 {
 	return nq.stepSize
 }
 
 // FindPath 查找路径
-func (nq *NavigationQuery) FindPath(start, end Vector3) []Vector3 {
+func (nq *NavigationQuery) FindPath(start, end math32.Vector3) []math32.Vector3 {
 	// 1. 找到起点和终点最近的节点
 	startNodeID := nq.findClosestNode(start)
 	endNodeID := nq.findClosestNode(end)
@@ -129,7 +131,7 @@ func (nq *NavigationQuery) FindPath(start, end Vector3) []Vector3 {
 }
 
 // findClosestNode 查找最近的节点
-func (nq *NavigationQuery) findClosestNode(pos Vector3) int {
+func (nq *NavigationQuery) findClosestNode(pos math32.Vector3) int {
 	// 检查缓存
 	if nodeID, exists := nq.spatialCache[pos]; exists {
 		return nodeID
@@ -145,7 +147,7 @@ func (nq *NavigationQuery) findClosestNode(pos Vector3) int {
 }
 
 // findClosestNodeMorton 使用Morton编码查找最近节点
-func (nq *NavigationQuery) findClosestNodeMorton(pos Vector3) int {
+func (nq *NavigationQuery) findClosestNodeMorton(pos math32.Vector3) int {
 	if len(nq.navData.MortonIndex) == 0 {
 		return nq.findClosestNodeBruteForce(pos)
 	}
@@ -164,11 +166,11 @@ func (nq *NavigationQuery) findClosestNodeMorton(pos Vector3) int {
 	// 优化：避免重复计算，使用增量搜索和全局最佳跟踪
 	checkedNodes := make(map[int]bool) // 记录已检查的节点
 	globalBestNodeID := -1
-	globalBestDistance := math.MaxFloat64
+	globalBestDistance := math32.MaxFloat32
 
 	initialRadius := 8
-	maxRadius := int(math.Min(64, float64(len(nq.navData.MortonIndex)/4))) // 最大搜索范围
-	prevRadius := 0                                                        // 上一次的搜索半径
+	maxRadius := int(math32.Min(64, float32(len(nq.navData.MortonIndex)/4))) // 最大搜索范围
+	prevRadius := 0                                                          // 上一次的搜索半径
 
 	for searchRadius := initialRadius; searchRadius <= maxRadius; searchRadius *= 2 {
 		newCandidates := make([]int, 0, searchRadius)
@@ -228,9 +230,9 @@ func (nq *NavigationQuery) findClosestNodeMorton(pos Vector3) int {
 }
 
 // findClosestNodeBruteForce 暴力查找最近节点
-func (nq *NavigationQuery) findClosestNodeBruteForce(pos Vector3) int {
+func (nq *NavigationQuery) findClosestNodeBruteForce(pos math32.Vector3) int {
 	bestNodeID := -1
-	bestDistance := math.MaxFloat64
+	bestDistance := math32.MaxFloat32
 
 	for i, node := range nq.navData.Nodes {
 		distance := pos.Distance(node.Center)
@@ -254,8 +256,8 @@ func (nq *NavigationQuery) astar(startNodeID, endNodeID int) []int {
 	heap.Init(openSet)
 
 	closedSet := make(map[int]bool)
-	gScore := make(map[int]float64)
-	fScore := make(map[int]float64)
+	gScore := make(map[int]float32)
+	fScore := make(map[int]float32)
 	cameFrom := make(map[int]int)
 	inOpenSet := make(map[int]*heapNode) // 优化：使用map快速查找开放列表中的节点
 
@@ -338,12 +340,12 @@ func (nq *NavigationQuery) astar(startNodeID, endNodeID int) []int {
 }
 
 // heuristic 启发式函数
-func (nq *NavigationQuery) heuristic(a, b Vector3) float64 {
+func (nq *NavigationQuery) heuristic(a, b math32.Vector3) float32 {
 	return a.Distance(b)
 }
 
 // calculateEnhancedMovementCost 计算增强的移动成本，考虑路径偏好
-func (nq *NavigationQuery) calculateEnhancedMovementCost(currentNodeID, neighborNodeID int) float64 {
+func (nq *NavigationQuery) calculateEnhancedMovementCost(currentNodeID, neighborNodeID int) float32 {
 	currentNode := &nq.navData.Nodes[currentNodeID]
 	neighborNode := &nq.navData.Nodes[neighborNodeID]
 
@@ -360,7 +362,7 @@ func (nq *NavigationQuery) calculateEnhancedMovementCost(currentNodeID, neighbor
 	neighborIsBoundary := nq.isNodeNearBoundary(neighborNode)
 
 	// 应用路径偏好权重
-	var costMultiplier float64 = 1.0
+	var costMultiplier float32 = 1.0
 
 	if currentIsBoundary && neighborIsBoundary {
 		// 两个节点都在边界附近，增加成本以降低优先级
@@ -397,13 +399,13 @@ func (nq *NavigationQuery) isNodeNearBoundary(node *CompactNode) bool {
 }
 
 // calculateNodeDensityFactor 计算节点密度因子
-func (nq *NavigationQuery) calculateNodeDensityFactor(currentNodeID, neighborNodeID int) float64 {
+func (nq *NavigationQuery) calculateNodeDensityFactor(currentNodeID, neighborNodeID int) float32 {
 	// 计算当前节点周围的邻居数量
 	currentNeighbors := len(nq.navData.GetNeighbors(currentNodeID))
 	neighborNeighbors := len(nq.navData.GetNeighbors(neighborNodeID))
 
 	// 平均邻居数量
-	avgNeighbors := float64(currentNeighbors+neighborNeighbors) / 2.0
+	avgNeighbors := float32(currentNeighbors+neighborNeighbors) / 2.0
 
 	// 高密度区域（邻居多）成本较低，低密度区域成本较高
 	if avgNeighbors > 6 {
@@ -418,12 +420,12 @@ func (nq *NavigationQuery) calculateNodeDensityFactor(currentNodeID, neighborNod
 }
 
 // convertToWorldPath 将节点路径转换为世界坐标路径，使用边界穿越点替代中心点
-func (nq *NavigationQuery) getCrossingPath(nodePath []*PathNode, start, end Vector3) []Vector3 {
+func (nq *NavigationQuery) getCrossingPath(nodePath []*PathNode, start, end math32.Vector3) []math32.Vector3 {
 	if len(nodePath) == 0 {
-		return []Vector3{}
+		return []math32.Vector3{}
 	}
 
-	var path []Vector3
+	var path []math32.Vector3
 
 	// 1. 添加起点
 	path = append(path, start)
@@ -451,10 +453,10 @@ func (nq *NavigationQuery) getCrossingPath(nodePath []*PathNode, start, end Vect
 }
 
 // calculateCrossingPoint 计算两个相邻节点之间的边界穿越点
-func (nq *NavigationQuery) calculateCrossingPoint(node1, node2 *PathNode) Vector3 {
+func (nq *NavigationQuery) calculateCrossingPoint(node1, node2 *PathNode) math32.Vector3 {
 	// 确定共享的边界平面
 	planeAxis := -1 // 0=X, 1=Y, 2=Z
-	planePos := 0.0
+	planePos := float32(0.0)
 
 	if floatEqual(node1.Bounds.Max.X, node2.Bounds.Min.X) { // 检查x方向
 		planeAxis = 0
@@ -482,21 +484,21 @@ func (nq *NavigationQuery) calculateCrossingPoint(node1, node2 *PathNode) Vector
 	// 计算从node1.Center到node2.Center的射线与平面的交点
 	dir := node2.Center.Sub(node1.Center)
 
-	var t float64
+	var t float32
 	switch planeAxis {
 	case 0: // X平面
-		if math.Abs(dir.X) < 1e-6 {
+		if math32.Abs(dir.X) < 1e-6 {
 			// 避免除以零
 			return node1.Center
 		}
 		t = (planePos - node1.Center.X) / dir.X
 	case 1: // Y平面
-		if math.Abs(dir.Y) < 1e-6 {
+		if math32.Abs(dir.Y) < 1e-6 {
 			return node1.Center
 		}
 		t = (planePos - node1.Center.Y) / dir.Y
 	case 2: // Z平面
-		if math.Abs(dir.Z) < 1e-6 {
+		if math32.Abs(dir.Z) < 1e-6 {
 			return node1.Center
 		}
 		t = (planePos - node1.Center.Z) / dir.Z
@@ -515,10 +517,10 @@ func (nq *NavigationQuery) calculateCrossingPoint(node1, node2 *PathNode) Vector
 	// 检查交点是否在两个节点的实际共享区域内（处理不同大小节点的情况）
 	switch planeAxis {
 	case 0: // X平面，检查Y和Z范围
-		minY := math.Max(node1.Bounds.Min.Y, node2.Bounds.Min.Y)
-		maxY := math.Min(node1.Bounds.Max.Y, node2.Bounds.Max.Y)
-		minZ := math.Max(node1.Bounds.Min.Z, node2.Bounds.Min.Z)
-		maxZ := math.Min(node1.Bounds.Max.Z, node2.Bounds.Max.Z)
+		minY := math32.Max(node1.Bounds.Min.Y, node2.Bounds.Min.Y)
+		maxY := math32.Min(node1.Bounds.Max.Y, node2.Bounds.Max.Y)
+		minZ := math32.Max(node1.Bounds.Min.Z, node2.Bounds.Min.Z)
+		maxZ := math32.Min(node1.Bounds.Max.Z, node2.Bounds.Max.Z)
 
 		if point.Y < minY || point.Y > maxY || point.Z < minZ || point.Z > maxZ {
 			// 交点不在共享区域内，调整到最近的有效位置
@@ -526,20 +528,20 @@ func (nq *NavigationQuery) calculateCrossingPoint(node1, node2 *PathNode) Vector
 			point.Z = clamp(point.Z, minZ, maxZ)
 		}
 	case 1: // Y平面，检查X和Z范围
-		minX := math.Max(node1.Bounds.Min.X, node2.Bounds.Min.X)
-		maxX := math.Min(node1.Bounds.Max.X, node2.Bounds.Max.X)
-		minZ := math.Max(node1.Bounds.Min.Z, node2.Bounds.Min.Z)
-		maxZ := math.Min(node1.Bounds.Max.Z, node2.Bounds.Max.Z)
+		minX := math32.Max(node1.Bounds.Min.X, node2.Bounds.Min.X)
+		maxX := math32.Min(node1.Bounds.Max.X, node2.Bounds.Max.X)
+		minZ := math32.Max(node1.Bounds.Min.Z, node2.Bounds.Min.Z)
+		maxZ := math32.Min(node1.Bounds.Max.Z, node2.Bounds.Max.Z)
 
 		if point.X < minX || point.X > maxX || point.Z < minZ || point.Z > maxZ {
 			point.X = clamp(point.X, minX, maxX)
 			point.Z = clamp(point.Z, minZ, maxZ)
 		}
 	case 2: // Z平面，检查X和Y范围
-		minX := math.Max(node1.Bounds.Min.X, node2.Bounds.Min.X)
-		maxX := math.Min(node1.Bounds.Max.X, node2.Bounds.Max.X)
-		minY := math.Max(node1.Bounds.Min.Y, node2.Bounds.Min.Y)
-		maxY := math.Min(node1.Bounds.Max.Y, node2.Bounds.Max.Y)
+		minX := math32.Max(node1.Bounds.Min.X, node2.Bounds.Min.X)
+		maxX := math32.Min(node1.Bounds.Max.X, node2.Bounds.Max.X)
+		minY := math32.Max(node1.Bounds.Min.Y, node2.Bounds.Min.Y)
+		maxY := math32.Min(node1.Bounds.Max.Y, node2.Bounds.Max.Y)
 
 		if point.X < minX || point.X > maxX || point.Y < minY || point.Y > maxY {
 			point.X = clamp(point.X, minX, maxX)
@@ -551,12 +553,12 @@ func (nq *NavigationQuery) calculateCrossingPoint(node1, node2 *PathNode) Vector
 }
 
 // floatEqual 浮点数比较（考虑精度问题）
-func floatEqual(a, b float64) bool {
-	return math.Abs(a-b) < 1e-6
+func floatEqual(a, b float32) bool {
+	return math32.Abs(a-b) < 1e-6
 }
 
 // clamp 将值限制在[min, max]范围内
-func clamp(value, min, max float64) float64 {
+func clamp(value, min, max float32) float32 {
 	if value < min {
 		return min
 	}
@@ -567,7 +569,7 @@ func clamp(value, min, max float64) float64 {
 }
 
 // convertToWorldPath 将节点路径转换为世界坐标路径
-func (nq *NavigationQuery) convertToWorldPath(nodePath []int, start, end Vector3) []Vector3 {
+func (nq *NavigationQuery) convertToWorldPath(nodePath []int, start, end math32.Vector3) []math32.Vector3 {
 	if len(nodePath) == 0 {
 		return nil
 	}
@@ -597,7 +599,7 @@ func (nq *NavigationQuery) convertToWorldPath(nodePath []int, start, end Vector3
 
 	// 如果漏斗算法返回空路径，回退到简单方法
 	if len(smoothedPath) == 0 {
-		path := make([]Vector3, 0, len(nodePath)+2)
+		path := make([]math32.Vector3, 0, len(nodePath)+2)
 		path = append(path, start)
 		for _, nodeID := range nodePath {
 			node := &nq.navData.Nodes[nodeID]
@@ -617,12 +619,12 @@ func (nq *NavigationQuery) convertToWorldPath(nodePath []int, start, end Vector3
 }
 
 // smoothPath 简单的路径平滑（保留作为备用）
-func (nq *NavigationQuery) smoothPath(path []Vector3) []Vector3 {
+func (nq *NavigationQuery) smoothPath(path []math32.Vector3) []math32.Vector3 {
 	if len(path) <= 2 {
 		return path
 	}
 
-	smoothed := make([]Vector3, 0, len(path))
+	smoothed := make([]math32.Vector3, 0, len(path))
 	smoothed = append(smoothed, path[0])
 
 	i := 0
@@ -646,17 +648,17 @@ func (nq *NavigationQuery) smoothPath(path []Vector3) []Vector3 {
 }
 
 // isPathClear 检查路径是否畅通
-func (nq *NavigationQuery) isPathClear(start, end Vector3) bool {
+func (nq *NavigationQuery) isPathClear(start, end math32.Vector3) bool {
 	// 简化的路径检查，实际应该根据代理大小进行检查
 	steps := int(start.Distance(end) / nq.stepSize)
 	if steps <= 1 {
 		return true
 	}
 
-	direction := end.Sub(start).Scale(1.0 / float64(steps))
+	direction := end.Sub(start).Scale(1.0 / float32(steps))
 
 	for i := 1; i < steps; i++ {
-		point := start.Add(direction.Scale(float64(i)))
+		point := start.Add(direction.Scale(float32(i)))
 
 		if nq.agent != nil {
 			// 检查代理碰撞
@@ -675,7 +677,7 @@ func (nq *NavigationQuery) isPathClear(start, end Vector3) bool {
 }
 
 // isOccupied 检查点是否被占用
-func (nq *NavigationQuery) isOccupied(point Vector3) bool {
+func (nq *NavigationQuery) isOccupied(point math32.Vector3) bool {
 	for _, geom := range nq.geometries {
 		if geom.ContainsPoint(point) {
 			return true
@@ -685,7 +687,7 @@ func (nq *NavigationQuery) isOccupied(point Vector3) bool {
 }
 
 // isAgentOccupied 检查代理是否与障碍物碰撞
-func (nq *NavigationQuery) isAgentOccupied(position Vector3) bool {
+func (nq *NavigationQuery) isAgentOccupied(position math32.Vector3) bool {
 	if nq.agent == nil {
 		return nq.isOccupied(position)
 	}
@@ -702,69 +704,22 @@ func (nq *NavigationQuery) isAgentOccupied(position Vector3) bool {
 }
 
 // capsuleIntersectsGeometry 检查胶囊体与几何体的碰撞
-func (nq *NavigationQuery) capsuleIntersectsGeometry(capsule Capsule, geom Geometry) bool {
-	switch g := geom.(type) {
-	case Triangle:
-		return nq.capsuleIntersectsTriangle(capsule, g)
-	case Box:
-		return nq.capsuleIntersectsBox(capsule, g)
-	case Capsule:
-		return nq.capsuleIntersectsCapsule(capsule, g)
-	case ConvexMesh:
-		return nq.capsuleIntersectsConvexMesh(capsule, g)
-	}
-	return false
+func (nq *NavigationQuery) capsuleIntersectsGeometry(capsule geometry.Capsule, geom geometry.Triangle) bool {
+	return nq.capsuleIntersectsTriangle(capsule, geom)
 }
 
 // 这些碰撞检测方法从原来的octree.go中复制过来
-func (nq *NavigationQuery) capsuleIntersectsTriangle(capsule Capsule, triangle Triangle) bool {
+func (nq *NavigationQuery) capsuleIntersectsTriangle(capsule geometry.Capsule, triangle geometry.Triangle) bool {
 	// 简化实现：检查胶囊体轴线与三角形的距离
-	minDist := pointToLineSegmentDistance(triangle.A, capsule.Start, capsule.End)
-	minDist = math.Min(minDist, pointToLineSegmentDistance(triangle.B, capsule.Start, capsule.End))
-	minDist = math.Min(minDist, pointToLineSegmentDistance(triangle.C, capsule.Start, capsule.End))
+	minDist := geometry.PointToLineSegmentDistance(triangle.A, capsule.Start, capsule.End)
+	minDist = math32.Min(minDist, geometry.PointToLineSegmentDistance(triangle.B, capsule.Start, capsule.End))
+	minDist = math32.Min(minDist, geometry.PointToLineSegmentDistance(triangle.C, capsule.Start, capsule.End))
 
 	return minDist <= capsule.Radius
 }
 
-func (nq *NavigationQuery) capsuleIntersectsBox(capsule Capsule, box Box) bool {
-	// 简化实现：检查胶囊体轴线与盒子的距离
-	boxAABB := box.GetBounds()
-
-	// 检查胶囊体轴线的起点和终点是否在扩展的盒子内
-	expandedAABB := AABB{
-		Min: boxAABB.Min.Sub(Vector3{capsule.Radius, capsule.Radius, capsule.Radius}),
-		Max: boxAABB.Max.Add(Vector3{capsule.Radius, capsule.Radius, capsule.Radius}),
-	}
-
-	return nq.lineSegmentIntersectsAABB(capsule.Start, capsule.End, expandedAABB)
-}
-
-func (nq *NavigationQuery) capsuleIntersectsCapsule(capsule1, capsule2 Capsule) bool {
-	// 计算两个胶囊体轴线之间的最短距离
-	distance := nq.lineSegmentDistance(capsule1.Start, capsule1.End, capsule2.Start, capsule2.End)
-	return distance <= (capsule1.Radius + capsule2.Radius)
-}
-
-func (nq *NavigationQuery) capsuleIntersectsConvexMesh(capsule Capsule, mesh ConvexMesh) bool {
-	// 简化实现：检查胶囊体是否与凸网格的任何面相交
-	for _, face := range mesh.Faces {
-		if len(face) >= 3 {
-			// 创建三角形并检查相交
-			triangle := Triangle{
-				A: mesh.Vertices[face[0]],
-				B: mesh.Vertices[face[1]],
-				C: mesh.Vertices[face[2]],
-			}
-			if nq.capsuleIntersectsTriangle(capsule, triangle) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // 辅助函数：线段与AABB的相交检测
-func (nq *NavigationQuery) lineSegmentIntersectsAABB(start, end Vector3, aabb AABB) bool {
+func (nq *NavigationQuery) lineSegmentIntersectsAABB(start, end math32.Vector3, aabb geometry.AABB) bool {
 	// 简化实现：检查线段的起点或终点是否在AABB内
 	if aabb.Contains(start) || aabb.Contains(end) {
 		return true
@@ -781,7 +736,7 @@ func (nq *NavigationQuery) lineSegmentIntersectsAABB(start, end Vector3, aabb AA
 	direction = direction.Scale(1.0 / length)
 
 	// 检查与每个轴的交点
-	for t := 0.0; t <= length; t += length / 10 {
+	for t := float32(0.0); t <= length; t += length / 10 {
 		point := start.Add(direction.Scale(t))
 		if aabb.Contains(point) {
 			return true
@@ -792,18 +747,18 @@ func (nq *NavigationQuery) lineSegmentIntersectsAABB(start, end Vector3, aabb AA
 }
 
 // 辅助函数：计算两个线段之间的最短距离
-func (nq *NavigationQuery) lineSegmentDistance(seg1Start, seg1End, seg2Start, seg2End Vector3) float64 {
+func (nq *NavigationQuery) lineSegmentDistance(seg1Start, seg1End, seg2Start, seg2End math32.Vector3) float32 {
 	// 简化实现：计算两个线段之间的近似距离
-	d1 := pointToLineSegmentDistance(seg1Start, seg2Start, seg2End)
-	d2 := pointToLineSegmentDistance(seg1End, seg2Start, seg2End)
-	d3 := pointToLineSegmentDistance(seg2Start, seg1Start, seg1End)
-	d4 := pointToLineSegmentDistance(seg2End, seg1Start, seg1End)
+	d1 := geometry.PointToLineSegmentDistance(seg1Start, seg2Start, seg2End)
+	d2 := geometry.PointToLineSegmentDistance(seg1End, seg2Start, seg2End)
+	d3 := geometry.PointToLineSegmentDistance(seg2Start, seg1Start, seg1End)
+	d4 := geometry.PointToLineSegmentDistance(seg2End, seg1Start, seg1End)
 
-	return math.Min(math.Min(d1, d2), math.Min(d3, d4))
+	return math32.Min(math32.Min(d1, d2), math32.Min(d3, d4))
 }
 
 // ToGridCoord 转换为网格坐标（兼容接口）
-func (nq *NavigationQuery) ToGridCoord(pos Vector3) (int, int, int) {
+func (nq *NavigationQuery) ToGridCoord(pos math32.Vector3) (int, int, int) {
 	// 简化实现，实际可以根据需要优化
 	return int(pos.X / nq.stepSize), int(pos.Y / nq.stepSize), int(pos.Z / nq.stepSize)
 }
@@ -815,7 +770,7 @@ func (nq *NavigationQuery) GetNavData() *NavigationData {
 
 // ClearCache 清除空间缓存
 func (nq *NavigationQuery) ClearCache() {
-	nq.spatialCache = make(map[Vector3]int)
+	nq.spatialCache = make(map[math32.Vector3]int)
 }
 
 // GetStats 获取统计信息
@@ -841,7 +796,7 @@ type NavigationStats struct {
 // 堆数据结构用于A*算法
 type heapNode struct {
 	nodeID int
-	fScore float64
+	fScore float32
 	index  int
 }
 

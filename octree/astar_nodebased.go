@@ -8,20 +8,23 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/o0olele/octree-go/geometry"
+	"github.com/o0olele/octree-go/math32"
 )
 
 // PathNode 寻路节点，对应八叉树中的空白叶子节点
 type PathNode struct {
 	ID         int
-	Center     Vector3
-	Bounds     AABB
+	Center     math32.Vector3
+	Bounds     geometry.AABB
 	Edges      []*PathEdge
 	OctreeNode *OctreeNode // 对应的八叉树节点
 
 	// A*算法相关字段
-	GCost     float64
-	HCost     float64
-	FCost     float64
+	GCost     float32
+	HCost     float32
+	FCost     float32
 	Parent    *PathNode
 	HeapIndex int
 }
@@ -34,7 +37,7 @@ func (n *PathNode) CalculateFCost() {
 type PathEdge struct {
 	NodeA *PathNode
 	NodeB *PathNode
-	Cost  float64
+	Cost  float32
 }
 
 // PathGraph 寻路图
@@ -115,7 +118,7 @@ func (h *PathNodeHeap) Pop() interface{} {
 type NodeBasedAStarPathfinder struct {
 	octree   *Octree
 	agent    *Agent
-	stepSize float64
+	stepSize float32
 	graph    *PathGraph
 
 	// Morton编码优化
@@ -133,12 +136,12 @@ type MortonNodePair struct {
 }
 
 // NewNodeBasedAStarPathfinder 创建基于节点的A*寻路器
-func NewNodeBasedAStarPathfinder(octree *Octree, stepSize float64) *NodeBasedAStarPathfinder {
+func NewNodeBasedAStarPathfinder(octree *Octree, stepSize float32) *NodeBasedAStarPathfinder {
 	return NewNodeBasedAStarPathfinderWithParallel(octree, nil, stepSize, false)
 }
 
 // NewNodeBasedAStarPathfinderWithParallel 创建基于节点的A*寻路器，可选择是否使用并行构建
-func NewNodeBasedAStarPathfinderWithParallel(octree *Octree, agent *Agent, stepSize float64, useParallel bool) *NodeBasedAStarPathfinder {
+func NewNodeBasedAStarPathfinderWithParallel(octree *Octree, agent *Agent, stepSize float32, useParallel bool) *NodeBasedAStarPathfinder {
 	funnelAlgorithm := NewFunnelAlgorithm(agent)
 	funnelAlgorithm.SetOctree(octree) // 设置八叉树引用
 
@@ -399,8 +402,8 @@ func (nba *NodeBasedAStarPathfinder) areNodesAdjacent(nodeA, nodeB *OctreeNode) 
 	// 计算两个节点的最大尺寸
 	sizeA := boundsA.Size()
 	sizeB := boundsB.Size()
-	maxSizeA := math.Max(math.Max(sizeA.X, sizeA.Y), sizeA.Z)
-	maxSizeB := math.Max(math.Max(sizeB.X, sizeB.Y), sizeB.Z)
+	maxSizeA := math32.Max(math32.Max(sizeA.X, sizeA.Y), sizeA.Z)
+	maxSizeB := math32.Max(math32.Max(sizeB.X, sizeB.Y), sizeB.Z)
 
 	// 放宽距离阈值检查 - 允许更多的相邻节点连接
 	threshold := (maxSizeA + maxSizeB) * 0.8 // 放宽阈值从0.6到0.8
@@ -413,7 +416,7 @@ func (nba *NodeBasedAStarPathfinder) areNodesAdjacent(nodeA, nodeB *OctreeNode) 
 		// 计算两个边界框之间的最小距离
 		minDistance := nba.calculateAABBDistance(boundsA, boundsB)
 		// 允许小的间隙，特别是对于不同大小的节点
-		allowedGap := math.Min(maxSizeA, maxSizeB) * 0.2 // 增加允许的间隙
+		allowedGap := math32.Min(maxSizeA, maxSizeB) * 0.2 // 增加允许的间隙
 		if minDistance > allowedGap {
 			return false
 		}
@@ -428,22 +431,22 @@ func (nba *NodeBasedAStarPathfinder) areNodesAdjacent(nodeA, nodeB *OctreeNode) 
 }
 
 // calculateAABBDistance 计算两个AABB之间的最小距离
-func (nba *NodeBasedAStarPathfinder) calculateAABBDistance(aabb1, aabb2 AABB) float64 {
+func (nba *NodeBasedAStarPathfinder) calculateAABBDistance(aabb1, aabb2 geometry.AABB) float32 {
 	// 如果相交，距离为0
 	if aabb1.Intersects(aabb2) {
 		return 0.0
 	}
 
 	// 计算每个轴上的距离
-	dx := math.Max(0, math.Max(aabb1.Min.X-aabb2.Max.X, aabb2.Min.X-aabb1.Max.X))
-	dy := math.Max(0, math.Max(aabb1.Min.Y-aabb2.Max.Y, aabb2.Min.Y-aabb1.Max.Y))
-	dz := math.Max(0, math.Max(aabb1.Min.Z-aabb2.Max.Z, aabb2.Min.Z-aabb1.Max.Z))
+	dx := math32.Max(0, math32.Max(aabb1.Min.X-aabb2.Max.X, aabb2.Min.X-aabb1.Max.X))
+	dy := math32.Max(0, math32.Max(aabb1.Min.Y-aabb2.Max.Y, aabb2.Min.Y-aabb1.Max.Y))
+	dz := math32.Max(0, math32.Max(aabb1.Min.Z-aabb2.Max.Z, aabb2.Min.Z-aabb1.Max.Z))
 
-	return math.Sqrt(dx*dx + dy*dy + dz*dz)
+	return math32.Sqrt(dx*dx + dy*dy + dz*dz)
 }
 
 // isPathClearRelaxed 使用更宽松的参数检查路径是否畅通
-func (nba *NodeBasedAStarPathfinder) isPathClearRelaxed(start, end Vector3) bool {
+func (nba *NodeBasedAStarPathfinder) isPathClearRelaxed(start, end math32.Vector3) bool {
 	// 计算方向向量和距离
 	direction := end.Sub(start)
 	distance := direction.Length()
@@ -456,8 +459,8 @@ func (nba *NodeBasedAStarPathfinder) isPathClearRelaxed(start, end Vector3) bool
 	direction = direction.Scale(1.0 / distance)
 
 	// 使用较少的采样点，提高连通性
-	stepSize := math.Min(nba.stepSize*0.5, 0.2) // 增加步长，减少采样密度
-	steps := int(math.Ceil(distance / stepSize))
+	stepSize := math32.Min(nba.stepSize*0.5, 0.2) // 增加步长，减少采样密度
+	steps := math32.CeilToInt(distance / stepSize)
 
 	// 确保有合理的采样点数量
 	if steps < 5 {
@@ -469,7 +472,7 @@ func (nba *NodeBasedAStarPathfinder) isPathClearRelaxed(start, end Vector3) bool
 
 	// 沿着路径进行采样检测
 	for i := 0; i <= steps; i++ {
-		t := float64(i) / float64(steps)
+		t := float32(i) / float32(steps)
 		samplePoint := start.Add(direction.Scale(distance * t))
 
 		// 检查采样点是否被占用
@@ -494,7 +497,7 @@ func (nba *NodeBasedAStarPathfinder) isPathClearRelaxed(start, end Vector3) bool
 }
 
 // isPathClear 检查两个点之间的路径是否畅通无阻（向后兼容方法）
-func (nba *NodeBasedAStarPathfinder) isPathClear(start, end Vector3) bool {
+func (nba *NodeBasedAStarPathfinder) isPathClear(start, end math32.Vector3) bool {
 	return nba.isPathClearRelaxed(start, end)
 }
 
@@ -508,13 +511,13 @@ func (nba *NodeBasedAStarPathfinder) debugNodeAdjacency(nodeA, nodeB *OctreeNode
 
 	sizeA := boundsA.Size()
 	sizeB := boundsB.Size()
-	maxSizeA := math.Max(math.Max(sizeA.X, sizeA.Y), sizeA.Z)
-	maxSizeB := math.Max(math.Max(sizeB.X, sizeB.Y), sizeB.Z)
+	maxSizeA := math32.Max(math32.Max(sizeA.X, sizeA.Y), sizeA.Z)
+	maxSizeB := math32.Max(math32.Max(sizeB.X, sizeB.Y), sizeB.Z)
 
 	threshold := (maxSizeA + maxSizeB) * 0.8
 	boundsIntersect := boundsA.Intersects(boundsB)
 	minDistance := nba.calculateAABBDistance(boundsA, boundsB)
-	allowedGap := math.Min(maxSizeA, maxSizeB) * 0.2
+	allowedGap := math32.Min(maxSizeA, maxSizeB) * 0.2
 	pathClear := nba.isPathClearRelaxed(centerA, centerB)
 
 	fmt.Printf("节点相邻性调试:\n")
@@ -531,12 +534,12 @@ func (nba *NodeBasedAStarPathfinder) debugNodeAdjacency(nodeA, nodeB *OctreeNode
 }
 
 // getNodeMarginPoints 获取节点边界的采样点
-func (nba *NodeBasedAStarPathfinder) getNodeMarginPoints(bounds AABB) []Vector3 {
+func (nba *NodeBasedAStarPathfinder) getNodeMarginPoints(bounds geometry.AABB) []math32.Vector3 {
 	center := bounds.Center()
 
 	// 在节点边界内生成采样点（避免边界上的点）
-	margin := 0.1 // 从边界内缩进一点
-	points := []Vector3{
+	margin := float32(0.1) // 从边界内缩进一点
+	points := []math32.Vector3{
 		// 中心点
 		center,
 		// 8个角点的内缩版本
@@ -576,25 +579,25 @@ func (nba *NodeBasedAStarPathfinder) GetAgent() *Agent {
 }
 
 // GetStepSize 获取步长
-func (nba *NodeBasedAStarPathfinder) GetStepSize() float64 {
+func (nba *NodeBasedAStarPathfinder) GetStepSize() float32 {
 	return nba.stepSize
 }
 
 // SetStepSize 设置步长
-func (nba *NodeBasedAStarPathfinder) SetStepSize(stepSize float64) {
+func (nba *NodeBasedAStarPathfinder) SetStepSize(stepSize float32) {
 	nba.stepSize = stepSize
 }
 
 // ToGridCoord 将Vector3转换为网格坐标（兼容接口）
-func (nba *NodeBasedAStarPathfinder) ToGridCoord(pos Vector3) (int, int, int) {
+func (nba *NodeBasedAStarPathfinder) ToGridCoord(pos math32.Vector3) (int, int, int) {
 	origin := nba.octree.Root.Bounds.Min
-	return int(math.Round((pos.X - origin.X) / nba.stepSize)),
-		int(math.Round((pos.Y - origin.Y) / nba.stepSize)),
-		int(math.Round((pos.Z - origin.Z) / nba.stepSize))
+	return math32.RoundToInt((pos.X - origin.X) / nba.stepSize),
+		math32.RoundToInt((pos.Y - origin.Y) / nba.stepSize),
+		math32.RoundToInt((pos.Z - origin.Z) / nba.stepSize)
 }
 
 // FindPath 使用基于节点的A*算法寻找路径
-func (nba *NodeBasedAStarPathfinder) FindPath(start, end Vector3) []Vector3 {
+func (nba *NodeBasedAStarPathfinder) FindPath(start, end math32.Vector3) []math32.Vector3 {
 	// 找到起点和终点最近的空白节点
 	startTime := time.Now()
 	startNode := nba.findClosestNode(start)
@@ -607,7 +610,7 @@ func (nba *NodeBasedAStarPathfinder) FindPath(start, end Vector3) []Vector3 {
 
 	// 如果起点和终点在同一个节点中
 	if startNode == endNode {
-		return []Vector3{start, end}
+		return []math32.Vector3{start, end}
 	}
 
 	// 运行A*算法
@@ -626,7 +629,7 @@ func (nba *NodeBasedAStarPathfinder) FindPath(start, end Vector3) []Vector3 {
 }
 
 // findClosestNode 找到最接近给定位置的空白节点
-func (nba *NodeBasedAStarPathfinder) findClosestNode(pos Vector3) *PathNode {
+func (nba *NodeBasedAStarPathfinder) findClosestNode(pos math32.Vector3) *PathNode {
 	// 首先尝试直接找到包含该位置的节点
 	containingNode := nba.findContainingNode(pos)
 	if containingNode != nil {
@@ -643,7 +646,7 @@ func (nba *NodeBasedAStarPathfinder) findClosestNode(pos Vector3) *PathNode {
 }
 
 // findContainingNode 找到包含给定位置的节点
-func (nba *NodeBasedAStarPathfinder) findContainingNode(pos Vector3) *PathNode {
+func (nba *NodeBasedAStarPathfinder) findContainingNode(pos math32.Vector3) *PathNode {
 	// 从根节点开始搜索
 	octreeNode := nba.findContainingOctreeNode(nba.octree.Root, pos)
 	if octreeNode != nil {
@@ -659,7 +662,7 @@ func (nba *NodeBasedAStarPathfinder) findContainingNode(pos Vector3) *PathNode {
 }
 
 // findContainingOctreeNode 在八叉树中找到包含位置的叶子节点
-func (nba *NodeBasedAStarPathfinder) findContainingOctreeNode(node *OctreeNode, pos Vector3) *OctreeNode {
+func (nba *NodeBasedAStarPathfinder) findContainingOctreeNode(node *OctreeNode, pos math32.Vector3) *OctreeNode {
 	if node == nil || !node.Bounds.Contains(pos) {
 		return nil
 	}
@@ -685,9 +688,9 @@ func (nba *NodeBasedAStarPathfinder) findContainingOctreeNode(node *OctreeNode, 
 }
 
 // findClosestNodeSpatial 使用空间查询找到最近的节点
-func (nba *NodeBasedAStarPathfinder) findClosestNodeSpatial(pos Vector3) *PathNode {
+func (nba *NodeBasedAStarPathfinder) findClosestNodeSpatial(pos math32.Vector3) *PathNode {
 	var closestNode *PathNode
-	minDistance := math.Inf(1)
+	minDistance := math32.MaxFloat32
 
 	// 使用广度优先搜索，从最可能的区域开始
 	candidates := nba.getSpatialCandidates(pos, 10) // 获取最近的10个候选节点
@@ -713,10 +716,10 @@ func (nba *NodeBasedAStarPathfinder) findClosestNodeSpatial(pos Vector3) *PathNo
 }
 
 // getSpatialCandidates 获取空间上最近的候选节点
-func (nba *NodeBasedAStarPathfinder) getSpatialCandidates(pos Vector3, maxCandidates int) []*PathNode {
+func (nba *NodeBasedAStarPathfinder) getSpatialCandidates(pos math32.Vector3, maxCandidates int) []*PathNode {
 	type nodeDistance struct {
 		node     *PathNode
-		distance float64
+		distance float32
 	}
 
 	candidates := make([]nodeDistance, 0)
@@ -746,9 +749,9 @@ func (nba *NodeBasedAStarPathfinder) getSpatialCandidates(pos Vector3, maxCandid
 }
 
 // findClosestNodeBruteForce 暴力搜索最近节点（备用方法）
-func (nba *NodeBasedAStarPathfinder) findClosestNodeBruteForce(pos Vector3) *PathNode {
+func (nba *NodeBasedAStarPathfinder) findClosestNodeBruteForce(pos math32.Vector3) *PathNode {
 	var closestNode *PathNode
-	minDistance := math.Inf(1)
+	minDistance := math32.MaxFloat32
 
 	for _, node := range nba.graph.Nodes {
 		// 检查位置是否在节点边界内
@@ -783,9 +786,9 @@ func (nba *NodeBasedAStarPathfinder) astar(startNode, endNode *PathNode) []*Path
 
 	// 重置所有节点的A*数据
 	for _, node := range nba.graph.Nodes {
-		node.GCost = math.Inf(1)
+		node.GCost = math32.MaxFloat32
 		node.HCost = 0
-		node.FCost = math.Inf(1)
+		node.FCost = math32.MaxFloat32
 		node.Parent = nil
 		node.HeapIndex = -1
 	}
@@ -842,7 +845,7 @@ func (nba *NodeBasedAStarPathfinder) astar(startNode, endNode *PathNode) []*Path
 }
 
 // heuristic 启发式函数
-func (nba *NodeBasedAStarPathfinder) heuristic(a, b *PathNode) float64 {
+func (nba *NodeBasedAStarPathfinder) heuristic(a, b *PathNode) float32 {
 	return a.Center.Distance(b.Center)
 }
 
@@ -860,7 +863,7 @@ func (nba *NodeBasedAStarPathfinder) reconstructNodePath(node *PathNode) []*Path
 }
 
 // convertToWorldPath 将节点路径转换为世界坐标路径
-func (nba *NodeBasedAStarPathfinder) convertToWorldPath(nodePath []*PathNode, start, end Vector3) []Vector3 {
+func (nba *NodeBasedAStarPathfinder) convertToWorldPath(nodePath []*PathNode, start, end math32.Vector3) []math32.Vector3 {
 	if len(nodePath) == 0 {
 		return nil
 	}
@@ -869,7 +872,7 @@ func (nba *NodeBasedAStarPathfinder) convertToWorldPath(nodePath []*PathNode, st
 
 	// 对于短路径，使用传统方法
 	if len(nodePath) <= 3 {
-		path := []Vector3{start}
+		path := []math32.Vector3{start}
 
 		// 添加所有节点的中心点，确保路径安全
 		for _, node := range nodePath {
@@ -903,7 +906,7 @@ func (nba *NodeBasedAStarPathfinder) convertToWorldPath(nodePath []*PathNode, st
 
 	// 如果漏斗算法失败，回退到传统方法
 	if len(funnelPath) == 0 {
-		path := []Vector3{start}
+		path := []math32.Vector3{start}
 
 		for _, node := range nodePath {
 			centerPoint := node.Center
@@ -940,7 +943,7 @@ func (nba *NodeBasedAStarPathfinder) convertToWorldPath(nodePath []*PathNode, st
 }
 
 // findSafePointInNode 在节点内找到Agent的安全位置
-func (nba *NodeBasedAStarPathfinder) findSafePointInNode(node *PathNode) *Vector3 {
+func (nba *NodeBasedAStarPathfinder) findSafePointInNode(node *PathNode) *math32.Vector3 {
 	if nba.agent == nil {
 		return &node.Center
 	}
@@ -950,10 +953,10 @@ func (nba *NodeBasedAStarPathfinder) findSafePointInNode(node *PathNode) *Vector
 	size := bounds.Size()
 
 	// 缩小搜索范围以避免边界碰撞
-	margin := math.Min(math.Min(size.X, size.Y), size.Z) * 0.1
-	searchBounds := AABB{
-		Min: bounds.Min.Add(Vector3{margin, margin, margin}),
-		Max: bounds.Max.Sub(Vector3{margin, margin, margin}),
+	margin := math32.Min(math32.Min(size.X, size.Y), size.Z) * 0.1
+	searchBounds := geometry.AABB{
+		Min: bounds.Min.Add(math32.Vector3{margin, margin, margin}),
+		Max: bounds.Max.Sub(math32.Vector3{margin, margin, margin}),
 	}
 
 	// 在搜索区域内采样
@@ -961,13 +964,13 @@ func (nba *NodeBasedAStarPathfinder) findSafePointInNode(node *PathNode) *Vector
 	for i := 0; i < samples; i++ {
 		for j := 0; j < samples; j++ {
 			for k := 0; k < samples; k++ {
-				t := Vector3{
-					float64(i) / float64(samples-1),
-					float64(j) / float64(samples-1),
-					float64(k) / float64(samples-1),
+				t := math32.Vector3{
+					float32(i) / float32(samples-1),
+					float32(j) / float32(samples-1),
+					float32(k) / float32(samples-1),
 				}
 
-				testPoint := Vector3{
+				testPoint := math32.Vector3{
 					searchBounds.Min.X + t.X*(searchBounds.Max.X-searchBounds.Min.X),
 					searchBounds.Min.Y + t.Y*(searchBounds.Max.Y-searchBounds.Min.Y),
 					searchBounds.Min.Z + t.Z*(searchBounds.Max.Z-searchBounds.Min.Z),
@@ -985,12 +988,12 @@ func (nba *NodeBasedAStarPathfinder) findSafePointInNode(node *PathNode) *Vector
 }
 
 // validatePathSafety 验证路径安全性
-func (nba *NodeBasedAStarPathfinder) validatePathSafety(path []Vector3) []Vector3 {
+func (nba *NodeBasedAStarPathfinder) validatePathSafety(path []math32.Vector3) []math32.Vector3 {
 	if len(path) <= 1 {
 		return path
 	}
 
-	validatedPath := []Vector3{path[0]}
+	validatedPath := []math32.Vector3{path[0]}
 
 	for i := 1; i < len(path); i++ {
 		lastPoint := validatedPath[len(validatedPath)-1]
@@ -1010,9 +1013,9 @@ func (nba *NodeBasedAStarPathfinder) validatePathSafety(path []Vector3) []Vector
 }
 
 // findSafeMidpoint 找到两点间的安全中间点
-func (nba *NodeBasedAStarPathfinder) findSafeMidpoint(start, end Vector3) *Vector3 {
+func (nba *NodeBasedAStarPathfinder) findSafeMidpoint(start, end math32.Vector3) *math32.Vector3 {
 	// 简单的中点策略
-	mid := Vector3{
+	mid := math32.Vector3{
 		(start.X + end.X) / 2,
 		(start.Y + end.Y) / 2,
 		(start.Z + end.Z) / 2,
@@ -1033,12 +1036,12 @@ func (nba *NodeBasedAStarPathfinder) findSafeMidpoint(start, end Vector3) *Vecto
 }
 
 // SmoothPath 路径平滑处理
-func (nba *NodeBasedAStarPathfinder) SmoothPath(path []Vector3) []Vector3 {
+func (nba *NodeBasedAStarPathfinder) SmoothPath(path []math32.Vector3) []math32.Vector3 {
 	if len(path) <= 2 {
 		return path
 	}
 
-	smoothed := []Vector3{path[0]}
+	smoothed := []math32.Vector3{path[0]}
 	i := 0
 
 	for i < len(path)-1 {
@@ -1061,7 +1064,7 @@ func (nba *NodeBasedAStarPathfinder) SmoothPath(path []Vector3) []Vector3 {
 }
 
 // hasObstacleBetween 检查两点间是否有障碍物
-func (nba *NodeBasedAStarPathfinder) hasObstacleBetween(start, end Vector3) bool {
+func (nba *NodeBasedAStarPathfinder) hasObstacleBetween(start, end math32.Vector3) bool {
 	// 使用isPathClear的反向结果，保持一致性
 	return !nba.isPathClear(start, end)
 }
@@ -1079,16 +1082,16 @@ type PathGraphData struct {
 
 // PathNodeData 用于JSON序列化的路径节点数据
 type PathNodeData struct {
-	ID     int     `json:"id"`
-	Center Vector3 `json:"center"`
-	Bounds AABB    `json:"bounds"`
+	ID     int            `json:"id"`
+	Center math32.Vector3 `json:"center"`
+	Bounds geometry.AABB  `json:"bounds"`
 }
 
 // PathEdgeData 用于JSON序列化的路径边数据
 type PathEdgeData struct {
 	NodeAID int     `json:"node_a_id"`
 	NodeBID int     `json:"node_b_id"`
-	Cost    float64 `json:"cost"`
+	Cost    float32 `json:"cost"`
 }
 
 // ToPathGraphData 将PathGraph转换为可序列化的数据结构
@@ -1156,7 +1159,7 @@ func (nba *NodeBasedAStarPathfinder) sortNodesByMorton() {
 }
 
 // findClosestNodeMorton 使用Morton编码快速找到最近的节点
-func (nba *NodeBasedAStarPathfinder) findClosestNodeMorton(pos Vector3) *PathNode {
+func (nba *NodeBasedAStarPathfinder) findClosestNodeMorton(pos math32.Vector3) *PathNode {
 	if len(nba.mortonSortedNodes) == 0 {
 		return nil
 	}
@@ -1182,7 +1185,7 @@ func (nba *NodeBasedAStarPathfinder) findClosestNodeMorton(pos Vector3) *PathNod
 	candidates := nba.getMortonCandidates(bestIndex, 10)
 
 	var closestNode *PathNode
-	minDistance := math.Inf(1)
+	minDistance := math32.MaxFloat32
 
 	for _, candidate := range candidates {
 		distance := pos.Distance(candidate.Center)

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/o0olele/octree-go/geometry"
 )
 
 // LoadNavigationData 从文件加载导航数据
@@ -79,12 +81,12 @@ func SaveNavigationData(navData *NavigationData, filename string) error {
 }
 
 // BuildAndSave 构建并保存导航数据（一步到位）
-func BuildAndSave(bounds AABB, maxDepth int, minSize float64, stepSize float64, geometries []Geometry, filename string) error {
+func BuildAndSave(bounds geometry.AABB, maxDepth int, minSize float32, stepSize float32, triangles []geometry.Triangle, filename string) error {
 	// 创建构建器
 	builder := NewNavigationBuilder(bounds, maxDepth, minSize, stepSize)
 
 	// 添加几何体
-	builder.AddGeometries(geometries)
+	builder.AddTriangles(triangles)
 
 	// 构建导航数据
 	navData, err := builder.Build(nil)
@@ -166,17 +168,17 @@ func GetFileInfo(filename string) (*NavigationFileInfo, error) {
 
 // NavigationFileInfo 导航文件信息
 type NavigationFileInfo struct {
-	Filename  string    `json:"filename"`
-	FileSize  int64     `json:"file_size"`
-	Version   uint32    `json:"version"`
-	Bounds    AABB      `json:"bounds"`
-	MaxDepth  int       `json:"max_depth"`
-	MinSize   float64   `json:"min_size"`
-	StepSize  float64   `json:"step_size"`
-	NodeCount int       `json:"node_count"`
-	EdgeCount int       `json:"edge_count"`
-	DataSize  int       `json:"data_size"`
-	ModTime   time.Time `json:"mod_time"`
+	Filename  string        `json:"filename"`
+	FileSize  int64         `json:"file_size"`
+	Version   uint32        `json:"version"`
+	Bounds    geometry.AABB `json:"bounds"`
+	MaxDepth  int           `json:"max_depth"`
+	MinSize   float32       `json:"min_size"`
+	StepSize  float32       `json:"step_size"`
+	NodeCount int           `json:"node_count"`
+	EdgeCount int           `json:"edge_count"`
+	DataSize  int           `json:"data_size"`
+	ModTime   time.Time     `json:"mod_time"`
 }
 
 // CompressNavigationData 压缩导航数据（可选功能）
@@ -228,10 +230,10 @@ func BatchBuild(configs []BuildConfig) error {
 
 // BuildConfig 构建配置
 type BuildConfig struct {
-	Bounds     AABB       `json:"bounds"`
-	MaxDepth   int        `json:"max_depth"`
-	MinSize    float64    `json:"min_size"`
-	StepSize   float64    `json:"step_size"`
-	Geometries []Geometry `json:"geometries"`
-	OutputFile string     `json:"output_file"`
+	Bounds     geometry.AABB       `json:"bounds"`
+	MaxDepth   int                 `json:"max_depth"`
+	MinSize    float32             `json:"min_size"`
+	StepSize   float32             `json:"step_size"`
+	Geometries []geometry.Triangle `json:"geometries"`
+	OutputFile string              `json:"output_file"`
 }

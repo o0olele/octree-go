@@ -1,6 +1,11 @@
 package octree
 
-import "math/bits"
+import (
+	"math/bits"
+
+	"github.com/o0olele/octree-go/geometry"
+	"github.com/o0olele/octree-go/math32"
+)
 
 // MortonCode 表示3D点的Morton编码
 type MortonCode uint64
@@ -41,7 +46,7 @@ func compact1By2(x uint64) uint64 {
 }
 
 // Vector3ToMorton 将Vector3转换为Morton码
-func Vector3ToMorton(pos Vector3, bounds AABB, resolution uint32) MortonCode {
+func Vector3ToMorton(pos math32.Vector3, bounds geometry.AABB, resolution uint32) MortonCode {
 	// 归一化到[0,1]范围
 	size := bounds.Size()
 	normalizedX := (pos.X - bounds.Min.X) / size.X
@@ -49,9 +54,9 @@ func Vector3ToMorton(pos Vector3, bounds AABB, resolution uint32) MortonCode {
 	normalizedZ := (pos.Z - bounds.Min.Z) / size.Z
 
 	// 转换为整数坐标
-	x := uint32(normalizedX * float64(resolution))
-	y := uint32(normalizedY * float64(resolution))
-	z := uint32(normalizedZ * float64(resolution))
+	x := uint32(normalizedX * float32(resolution))
+	y := uint32(normalizedY * float32(resolution))
+	z := uint32(normalizedZ * float32(resolution))
 
 	// 确保在范围内
 	if x >= resolution {
@@ -68,14 +73,14 @@ func Vector3ToMorton(pos Vector3, bounds AABB, resolution uint32) MortonCode {
 }
 
 // MortonToVector3 将Morton码转换为Vector3
-func MortonToVector3(morton MortonCode, bounds AABB, resolution uint32) Vector3 {
+func MortonToVector3(morton MortonCode, bounds geometry.AABB, resolution uint32) math32.Vector3 {
 	x, y, z := DecodeMorton3D(morton)
 
 	size := bounds.Size()
-	return Vector3{
-		X: bounds.Min.X + (float64(x)/float64(resolution))*size.X,
-		Y: bounds.Min.Y + (float64(y)/float64(resolution))*size.Y,
-		Z: bounds.Min.Z + (float64(z)/float64(resolution))*size.Z,
+	return math32.Vector3{
+		X: bounds.Min.X + (float32(x)/float32(resolution))*size.X,
+		Y: bounds.Min.Y + (float32(y)/float32(resolution))*size.Y,
+		Z: bounds.Min.Z + (float32(z)/float32(resolution))*size.Z,
 	}
 }
 
@@ -85,7 +90,7 @@ func MortonDistance(a, b MortonCode) uint64 {
 }
 
 // GetMortonNeighbors 获取Morton码的相邻码（6个面方向）
-func GetMortonNeighbors(morton MortonCode, bounds AABB, resolution uint32) []MortonCode {
+func GetMortonNeighbors(morton MortonCode, bounds geometry.AABB, resolution uint32) []MortonCode {
 	x, y, z := DecodeMorton3D(morton)
 	neighbors := make([]MortonCode, 0, 6)
 

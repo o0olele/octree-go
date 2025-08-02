@@ -8,48 +8,42 @@ import (
 	"os"
 	"runtime"
 	"time"
-)
 
-func init() {
-	// 注册gob类型
-	gob.Register(Triangle{})
-	gob.Register(Box{})
-	gob.Register(Capsule{})
-	gob.Register(ConvexMesh{})
-}
+	"github.com/o0olele/octree-go/geometry"
+)
 
 // NavigationBuilder 导航网格构建器，类似于Recast
 type NavigationBuilder struct {
 	octree      *Octree
 	pathfinder  *NodeBasedAStarPathfinder
-	geometries  []Geometry
-	bounds      AABB
+	triangles   []geometry.Triangle
+	bounds      geometry.AABB
 	maxDepth    int
-	minSize     float64
-	stepSize    float64
+	minSize     float32
+	stepSize    float32
 	useParallel bool
 }
 
 // NewNavigationBuilder 创建新的导航网格构建器
-func NewNavigationBuilder(bounds AABB, maxDepth int, minSize float64, stepSize float64) *NavigationBuilder {
+func NewNavigationBuilder(bounds geometry.AABB, maxDepth int, minSize float32, stepSize float32) *NavigationBuilder {
 	return &NavigationBuilder{
 		bounds:      bounds,
 		maxDepth:    maxDepth,
 		minSize:     minSize,
 		stepSize:    stepSize,
 		useParallel: true,
-		geometries:  make([]Geometry, 0),
+		triangles:   make([]geometry.Triangle, 0),
 	}
 }
 
-// AddGeometry 添加几何体到构建器
-func (nb *NavigationBuilder) AddGeometry(geom Geometry) {
-	nb.geometries = append(nb.geometries, geom)
+// AddTriangle 添加几何体到构建器
+func (nb *NavigationBuilder) AddTriangle(triangle geometry.Triangle) {
+	nb.triangles = append(nb.triangles, triangle)
 }
 
-// AddGeometries 批量添加几何体
-func (nb *NavigationBuilder) AddGeometries(geoms []Geometry) {
-	nb.geometries = append(nb.geometries, geoms...)
+// AddTriangles 批量添加几何体
+func (nb *NavigationBuilder) AddTriangles(triangles []geometry.Triangle) {
+	nb.triangles = append(nb.triangles, triangles...)
 }
 
 // SetParallel 设置是否使用并行构建
@@ -66,10 +60,10 @@ func (nb *NavigationBuilder) Build(agent *Agent) (*NavigationData, error) {
 	octreeStart := time.Now()
 	nb.octree = NewOctree(nb.bounds, nb.maxDepth, nb.minSize)
 
-	for _, geom := range nb.geometries {
-		nb.octree.AddGeometry(geom)
+	for _, triangle := range nb.triangles {
+		nb.octree.AddTriangle(triangle)
 	}
-	fmt.Printf("Octree geometries added: %d\n", len(nb.geometries))
+	fmt.Printf("Octree triangles added: %d\n", len(nb.triangles))
 
 	nb.octree.Build()
 	octreeTime := time.Since(octreeStart)
@@ -182,7 +176,7 @@ func (nb *NavigationBuilder) collectEmptyLeaves(node *OctreeNode) []*OctreeNode 
 
 // serializeGeometries 序列化几何体数据
 func (nb *NavigationBuilder) serializeGeometries() []byte {
-	if len(nb.geometries) == 0 {
+	if len(nb.triangles) == 0 {
 		return []byte{}
 	}
 
@@ -190,24 +184,9 @@ func (nb *NavigationBuilder) serializeGeometries() []byte {
 	encoder := gob.NewEncoder(&buf)
 
 	// 创建可序列化的几何体数据
-	geomData := make([]SerializableGeometry, 0, len(nb.geometries))
-	for _, geom := range nb.geometries {
-		sg := SerializableGeometry{
-			Type: geom.GetType(),
-		}
-
-		switch g := geom.(type) {
-		case Triangle:
-			sg.Data = g
-		case Box:
-			sg.Data = g
-		case Capsule:
-			sg.Data = g
-		case ConvexMesh:
-			sg.Data = g
-		}
-
-		geomData = append(geomData, sg)
+	geomData := make([]geometry.Triangle, 0, len(nb.triangles))
+	for _, triangle := range nb.triangles {
+		geomData = append(geomData, triangle)
 	}
 
 	if err := encoder.Encode(geomData); err != nil {
