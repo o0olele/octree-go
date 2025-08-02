@@ -1,6 +1,7 @@
 package builder
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/gob"
 	"fmt"
@@ -10,17 +11,17 @@ import (
 	"github.com/o0olele/octree-go/geometry"
 )
 
-// LoadNavigationData 从文件加载导航数据
-func LoadNavigationData(filename string) (*NavigationData, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %v", err)
-	}
-	defer file.Close()
+func Load(filename string) (*NavigationData, error) {
 
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %v", err)
+	}
+
+	buf := bytes.NewBuffer(content)
 	// 读取文件头
 	var header FileHeader
-	if err := binary.Read(file, binary.LittleEndian, &header); err != nil {
+	if err := binary.Read(buf, binary.LittleEndian, &header); err != nil {
 		return nil, fmt.Errorf("failed to read header: %v", err)
 	}
 
@@ -33,19 +34,80 @@ func LoadNavigationData(filename string) (*NavigationData, error) {
 		return nil, fmt.Errorf("unsupported file version: %d", header.Version)
 	}
 
-	// 使用gob解码数据
-	decoder := gob.NewDecoder(file)
-	var navData NavigationData
-	if err := decoder.Decode(&navData); err != nil {
-		return nil, fmt.Errorf("failed to decode navigation data: %v", err)
+	navData := &NavigationData{}
+
+	if err := binary.Read(buf, binary.LittleEndian, &navData.Bounds); err != nil {
+		return nil, fmt.Errorf("failed to read bounds: %v", err)
 	}
 
-	// 验证数据完整性
-	if err := navData.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid navigation data: %v", err)
+	if err := binary.Read(buf, binary.LittleEndian, &navData.MaxDepth); err != nil {
+		return nil, fmt.Errorf("failed to read max depth: %v", err)
 	}
 
-	return &navData, nil
+	if err := binary.Read(buf, binary.LittleEndian, &navData.MinSize); err != nil {
+		return nil, fmt.Errorf("failed to read min size: %v", err)
+	}
+
+	if err := binary.Read(buf, binary.LittleEndian, &navData.StepSize); err != nil {
+		return nil, fmt.Errorf("failed to read step size: %v", err)
+	}
+
+	var nodeCount uint32
+	if err := binary.Read(buf, binary.LittleEndian, &nodeCount); err != nil {
+		return nil, fmt.Errorf("failed to read node count: %v", err)
+	}
+
+	navData.Nodes = make([]CompactNode, nodeCount)
+
+	for i := range navData.Nodes {
+		if err := binary.Read(buf, binary.LittleEndian, &navData.Nodes[i]); err != nil {
+			return nil, fmt.Errorf("failed to read node: %v", err)
+		}
+	}
+
+	var edgeCount uint32
+	if err := binary.Read(buf, binary.LittleEndian, &edgeCount); err != nil {
+		return nil, fmt.Errorf("failed to read edge count: %v", err)
+	}
+
+	navData.Edges = make([]CompactEdge, edgeCount)
+
+	for i := range navData.Edges {
+		if err := binary.Read(buf, binary.LittleEndian, &navData.Edges[i]); err != nil {
+			return nil, fmt.Errorf("failed to read edge: %v", err)
+		}
+	}
+
+	var mortonIndexCount uint32
+	if err := binary.Read(buf, binary.LittleEndian, &mortonIndexCount); err != nil {
+		return nil, fmt.Errorf("failed to read morton index count: %v", err)
+	}
+
+	navData.MortonIndex = make([]int32, mortonIndexCount)
+
+	for i := range navData.MortonIndex {
+		if err := binary.Read(buf, binary.LittleEndian, &navData.MortonIndex[i]); err != nil {
+			return nil, fmt.Errorf("failed to read morton index: %v", err)
+		}
+	}
+
+	var mortonResolution uint32
+	if err := binary.Read(buf, binary.LittleEndian, &mortonResolution); err != nil {
+		return nil, fmt.Errorf("failed to read morton resolution: %v", err)
+	}
+
+	var geometryDataSize uint32
+	if err := binary.Read(buf, binary.LittleEndian, &geometryDataSize); err != nil {
+		return nil, fmt.Errorf("failed to read geometry data size: %v", err)
+	}
+
+	navData.GeometryData = make([]byte, geometryDataSize)
+
+	if err := binary.Read(buf, binary.LittleEndian, navData.GeometryData); err != nil {
+		return nil, fmt.Errorf("failed to read geometry data: %v", err)
+	}
+
+	return navData, nil
 }
 
 func Save(navData *NavigationData, filename string) error {
@@ -54,123 +116,93 @@ func Save(navData *NavigationData, filename string) error {
 		return fmt.Errorf("invalid navigation data: %v", err)
 	}
 
-	file, err := os.Create(filename)
-	if err != nil {
-		return fmt.Errorf("failed to create file: %v", err)
-	}
-	defer file.Close()
-
+	buf := bytes.NewBuffer(nil)
 	// 写入文件头
 	header := FileHeader{
 		Magic:   NAVIGATION_FILE_MAGIC,
 		Version: NAVIGATION_FILE_VERSION,
 	}
 
-	if err := binary.Write(file, binary.LittleEndian, header); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, header); err != nil {
 		return fmt.Errorf("failed to write header: %v", err)
 	}
 
 	// write bounds
-	if err := binary.Write(file, binary.LittleEndian, navData.Bounds); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, navData.Bounds); err != nil {
 		return fmt.Errorf("failed to write base info: %v", err)
 	}
 
 	// write max depth
-	if err := binary.Write(file, binary.LittleEndian, navData.MaxDepth); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, navData.MaxDepth); err != nil {
 		return fmt.Errorf("failed to write max depth: %v", err)
 	}
 
 	// write min size
-	if err := binary.Write(file, binary.LittleEndian, navData.MinSize); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, navData.MinSize); err != nil {
 		return fmt.Errorf("failed to write min size: %v", err)
 	}
 
 	// write step size
-	if err := binary.Write(file, binary.LittleEndian, navData.StepSize); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, navData.StepSize); err != nil {
 		return fmt.Errorf("failed to write step size: %v", err)
 	}
 
 	// write node count
-	if err := binary.Write(file, binary.LittleEndian, uint32(len(navData.Nodes))); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, uint32(len(navData.Nodes))); err != nil {
 		return fmt.Errorf("failed to write node count: %v", err)
 	}
 
 	for _, node := range navData.Nodes {
 		// write node id
-		if err := binary.Write(file, binary.LittleEndian, node); err != nil {
+		if err := binary.Write(buf, binary.LittleEndian, node); err != nil {
 			return fmt.Errorf("failed to write node id: %v", err)
 		}
 	}
 
 	// write edge count
-	if err := binary.Write(file, binary.LittleEndian, uint32(len(navData.Edges))); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, uint32(len(navData.Edges))); err != nil {
 		return fmt.Errorf("failed to write edge count: %v", err)
 	}
 
 	for _, edge := range navData.Edges {
 		// write edge id
-		if err := binary.Write(file, binary.LittleEndian, edge); err != nil {
+		if err := binary.Write(buf, binary.LittleEndian, edge); err != nil {
 			return fmt.Errorf("failed to write edge id: %v", err)
 		}
 	}
 
 	// write morton index count
-	if err := binary.Write(file, binary.LittleEndian, uint32(len(navData.MortonIndex))); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, uint32(len(navData.MortonIndex))); err != nil {
 		return fmt.Errorf("failed to write morton index count: %v", err)
 	}
 
 	// write morton index
 	for _, idx := range navData.MortonIndex {
-		if err := binary.Write(file, binary.LittleEndian, uint32(idx)); err != nil {
+		if err := binary.Write(buf, binary.LittleEndian, uint32(idx)); err != nil {
 			return fmt.Errorf("failed to write morton index: %v", err)
 		}
 	}
 
 	// write morton resolution
-	if err := binary.Write(file, binary.LittleEndian, navData.MortonResolution); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, navData.MortonResolution); err != nil {
 		return fmt.Errorf("failed to write morton resolution: %v", err)
 	}
 
 	// write geometry data size
-	if err := binary.Write(file, binary.LittleEndian, uint32(len(navData.GeometryData))); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, uint32(len(navData.GeometryData))); err != nil {
 		return fmt.Errorf("failed to write geometry data size: %v", err)
 	}
 
 	// write geometry data
-	if err := binary.Write(file, binary.LittleEndian, navData.GeometryData); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, navData.GeometryData); err != nil {
 		return fmt.Errorf("failed to write geometry data: %v", err)
 	}
 
-	return nil
-}
+	content := buf.Bytes()
 
-// SaveNavigationData 保存导航数据到文件
-func SaveNavigationData(navData *NavigationData, filename string) error {
-	// 验证数据完整性
-	if err := navData.Validate(); err != nil {
-		return fmt.Errorf("invalid navigation data: %v", err)
-	}
-
-	file, err := os.Create(filename)
+	err := os.WriteFile(filename, content, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to create file: %v", err)
-	}
-	defer file.Close()
-
-	// 写入文件头
-	header := FileHeader{
-		Magic:   NAVIGATION_FILE_MAGIC,
-		Version: NAVIGATION_FILE_VERSION,
-	}
-
-	if err := binary.Write(file, binary.LittleEndian, header); err != nil {
-		return fmt.Errorf("failed to write header: %v", err)
-	}
-
-	// 使用gob编码写入数据
-	encoder := gob.NewEncoder(file)
-	if err := encoder.Encode(navData); err != nil {
-		return fmt.Errorf("failed to encode navigation data: %v", err)
+		return fmt.Errorf("failed to write file: %v", err)
 	}
 
 	return nil
@@ -191,7 +223,7 @@ func BuildAndSave(bounds geometry.AABB, maxDepth uint8, minSize float32, stepSiz
 	}
 
 	// 保存到文件
-	if err := SaveNavigationData(navData, filename); err != nil {
+	if err := Save(navData, filename); err != nil {
 		return fmt.Errorf("failed to save navigation data: %v", err)
 	}
 
@@ -270,7 +302,7 @@ func CompressNavigationData(navData *NavigationData) *NavigationData {
 
 // ValidateNavigationFile 验证导航文件的完整性
 func ValidateNavigationFile(filename string) error {
-	navData, err := LoadNavigationData(filename)
+	navData, err := Load(filename)
 	if err != nil {
 		return err
 	}
