@@ -23,7 +23,7 @@ func NewAgent(radius, height float32) *Agent {
 }
 
 // GetCapsule 根据位置获取Agent的胶囊体表示
-func (a *Agent) GetCapsule(position math32.Vector3) geometry.Capsule {
+func (a *Agent) GetCapsule(position math32.Vector3) *geometry.Capsule {
 	// 胶囊体的轴线沿Y轴方向
 	start := math32.Vector3{
 		X: position.X,
@@ -35,7 +35,7 @@ func (a *Agent) GetCapsule(position math32.Vector3) geometry.Capsule {
 		Y: position.Y + a.Height + a.Radius,
 		Z: position.Z,
 	}
-	return geometry.Capsule{
+	return &geometry.Capsule{
 		Start:  start,
 		End:    end,
 		Radius: a.Radius,
@@ -47,32 +47,23 @@ func (a *Agent) GetBounds(position math32.Vector3) geometry.AABB {
 	return a.GetCapsule(position).GetBounds()
 }
 
-// OctreeNode 八叉树节点
-type OctreeNode struct {
-	Bounds     geometry.AABB       `json:"bounds"`
-	Children   [8]*OctreeNode      `json:"children,omitempty"`
-	Triangles  []geometry.Triangle `json:"-"`
-	IsLeaf     bool                `json:"is_leaf"`
-	IsOccupied bool                `json:"is_occupied"`
-	Depth      int                 `json:"depth"`
-}
-
 // Octree 八叉树主结构
 type Octree struct {
-	Root      *OctreeNode `json:"root"`
-	MaxDepth  int         `json:"max_depth"`
-	MinSize   float32     `json:"min_size"`
-	triangles []geometry.Triangle
+	Root        *OctreeNode `json:"root"`
+	MaxDepth    uint8       `json:"max_depth"`
+	MinSize     float32     `json:"min_size"`
+	triangles   []geometry.Triangle
+	nodes       []OctreeNode
+	buildHelper *OctreeBuildHelper
 }
 
 // NewOctree 创建新的八叉树
-func NewOctree(bounds geometry.AABB, maxDepth int, minSize float32) *Octree {
+func NewOctree(bounds geometry.AABB, maxDepth uint8, minSize float32) *Octree {
 	return &Octree{
 		Root: &OctreeNode{
-			Bounds:     bounds,
-			IsLeaf:     true,
-			IsOccupied: false,
-			Depth:      0,
+			Bounds: bounds,
+			Flags:  FlagsDefault,
+			Depth:  0,
 		},
 		MaxDepth:  maxDepth,
 		MinSize:   minSize,
@@ -80,30 +71,55 @@ func NewOctree(bounds geometry.AABB, maxDepth int, minSize float32) *Octree {
 	}
 }
 
+func (o *Octree) SetTriangles(triangles []geometry.Triangle) {
+	o.triangles = triangles
+}
+
+func (o *Octree) SetHelper(helper *OctreeBuildHelper) {
+	o.buildHelper = helper
+}
+
 // AddTriangle 添加三角形面到八叉树
 func (o *Octree) AddTriangle(triangle geometry.Triangle) {
 	o.triangles = append(o.triangles, triangle)
-	o.insertTriangle(o.Root, triangle)
+	// o.triangleIndex += 1
+	// o.insertTriangle(o.Root, o.triangleIndex, &o.triangles[o.triangleIndex])
 }
 
-func (o *Octree) insertTriangle(node *OctreeNode, triangle geometry.Triangle) {
+func (o *Octree) GetTrianglesNum() int {
+	return len(o.triangles)
+}
+
+func (o *Octree) GetTriangles() []geometry.Triangle {
+	return o.triangles
+}
+
+func (o *Octree) AddTriangles(triangles []geometry.Triangle) {
+	o.triangles = append(o.triangles, triangles...)
+}
+
+func (o *Octree) insertTriangle(node *OctreeNode, triangleIndex int, triangle *geometry.Triangle) {
 	if !triangle.IntersectsAABB(node.Bounds) {
 		return
 	}
 
 	node.Triangles = append(node.Triangles, triangle)
-	node.IsOccupied = true
+	node.SetOccupied(true)
+
+	if o.buildHelper != nil {
+		o.buildHelper.AddTriangleIndex(node, uint32(triangleIndex))
+	}
 
 	// 如果节点是叶子且达到分割条件，则分割
-	if node.IsLeaf && node.Depth < o.MaxDepth && node.Bounds.Size().X > o.MinSize {
+	if node.IsLeaf() && node.Depth < o.MaxDepth && node.Bounds.Size().X > o.MinSize {
 		o.subdivide(node)
 	}
 
 	// 如果不是叶子，递归插入到子节点
-	if !node.IsLeaf {
+	if !node.IsLeaf() {
 		for _, child := range node.Children {
 			if child != nil {
-				o.insertTriangle(child, triangle)
+				o.insertTriangle(child, triangleIndex, triangle)
 			}
 		}
 	}
@@ -131,20 +147,22 @@ func (o *Octree) subdivide(node *OctreeNode) {
 		}
 
 		node.Children[i] = &OctreeNode{
-			Bounds:     childBounds,
-			IsLeaf:     true,
-			IsOccupied: false,
-			Depth:      node.Depth + 1,
+			Bounds: childBounds,
+			Flags:  FlagsDefault,
+			Depth:  node.Depth + 1,
 		}
 	}
+	if o.buildHelper != nil {
+		o.buildHelper.AddChildren(node, node.Children)
+	}
 
-	node.IsLeaf = false
+	node.SetLeaf(false)
 }
 
 // Build 构建八叉树
 func (o *Octree) Build() {
-	for _, triangle := range o.triangles {
-		o.insertTriangle(o.Root, triangle)
+	for idx := range o.triangles {
+		o.insertTriangle(o.Root, idx, &o.triangles[idx])
 	}
 }
 
@@ -163,15 +181,15 @@ func (o *Octree) IsAgentOccupied(agent *Agent, position math32.Vector3) bool {
 	return o.isAgentOccupiedRecursive(o.Root, agentCapsule)
 }
 
-func (o *Octree) isAgentOccupiedRecursive(node *OctreeNode, agentCapsule geometry.Capsule) bool {
+func (o *Octree) isAgentOccupiedRecursive(node *OctreeNode, agentCapsule *geometry.Capsule) bool {
 	// 检查Agent的包围盒是否与节点相交
 	agentBounds := agentCapsule.GetBounds()
 	if !o.aabbIntersects(node.Bounds, agentBounds) {
 		return false
 	}
 
-	if node.IsLeaf {
-		if !node.IsOccupied {
+	if node.IsLeaf() {
+		if !node.IsOccupied() {
 			return false
 		}
 		// 检查Agent胶囊体是否与节点中的几何体碰撞
@@ -203,7 +221,7 @@ func (o *Octree) aabbIntersects(a, b geometry.AABB) bool {
 var Log bool
 
 // capsuleIntersectsTriangle 胶囊体与三角形相交检测
-func (o *Octree) capsuleIntersectsTriangle(capsule geometry.Capsule, triangle geometry.Triangle) bool {
+func (o *Octree) capsuleIntersectsTriangle(capsule *geometry.Capsule, triangle *geometry.Triangle) bool {
 	intersect, _, _, _ := geometry.CapsuleTriangleIntersect(capsule, triangle.A, triangle.B, triangle.C)
 	return intersect
 	// // 简化实现：检查胶囊体轴线到三角形各边的距离
@@ -310,8 +328,8 @@ func (o *Octree) isOccupiedRecursive(node *OctreeNode, point math32.Vector3) boo
 		return false
 	}
 
-	if node.IsLeaf {
-		if !node.IsOccupied {
+	if node.IsLeaf() {
+		if !node.IsOccupied() {
 			return false
 		}
 		// 检查所有几何体
@@ -377,7 +395,7 @@ func (o *Octree) isPathClear(agent *Agent, start, end math32.Vector3) bool {
 // 用于JSON序列化的简化结构
 type OctreeExport struct {
 	Root     *OctreeNodeExport `json:"root"`
-	MaxDepth int               `json:"max_depth"`
+	MaxDepth uint8             `json:"max_depth"`
 	MinSize  float32           `json:"min_size"`
 }
 
@@ -386,7 +404,7 @@ type OctreeNodeExport struct {
 	Children   []*OctreeNodeExport `json:"children,omitempty"`
 	IsLeaf     bool                `json:"is_leaf"`
 	IsOccupied bool                `json:"is_occupied"`
-	Depth      int                 `json:"depth"`
+	Depth      uint8               `json:"depth"`
 }
 
 // ToJSON 导出八叉树为JSON
@@ -406,12 +424,12 @@ func (o *Octree) nodeToExport(node *OctreeNode) *OctreeNodeExport {
 
 	export := &OctreeNodeExport{
 		Bounds:     node.Bounds,
-		IsLeaf:     node.IsLeaf,
-		IsOccupied: node.IsOccupied,
+		IsLeaf:     node.IsLeaf(),
+		IsOccupied: node.IsOccupied(),
 		Depth:      node.Depth,
 	}
 
-	if !node.IsLeaf {
+	if !node.IsLeaf() {
 		for _, child := range node.Children {
 			export.Children = append(export.Children, o.nodeToExport(child))
 		}
