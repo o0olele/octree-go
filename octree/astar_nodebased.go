@@ -543,21 +543,21 @@ func (nba *NodeBasedAStarPathfinder) getNodeMarginPoints(bounds geometry.AABB) [
 		// 中心点
 		center,
 		// 8个角点的内缩版本
-		{bounds.Min.X + margin, bounds.Min.Y + margin, bounds.Min.Z + margin},
-		{bounds.Max.X - margin, bounds.Min.Y + margin, bounds.Min.Z + margin},
-		{bounds.Min.X + margin, bounds.Max.Y - margin, bounds.Min.Z + margin},
-		{bounds.Max.X - margin, bounds.Max.Y - margin, bounds.Min.Z + margin},
-		{bounds.Min.X + margin, bounds.Min.Y + margin, bounds.Max.Z - margin},
-		{bounds.Max.X - margin, bounds.Min.Y + margin, bounds.Max.Z - margin},
-		{bounds.Min.X + margin, bounds.Max.Y - margin, bounds.Max.Z - margin},
-		{bounds.Max.X - margin, bounds.Max.Y - margin, bounds.Max.Z - margin},
+		{X: bounds.Min.X + margin, Y: bounds.Min.Y + margin, Z: bounds.Min.Z + margin},
+		{X: bounds.Max.X - margin, Y: bounds.Min.Y + margin, Z: bounds.Min.Z + margin},
+		{X: bounds.Min.X + margin, Y: bounds.Max.Y - margin, Z: bounds.Min.Z + margin},
+		{X: bounds.Max.X - margin, Y: bounds.Max.Y - margin, Z: bounds.Min.Z + margin},
+		{X: bounds.Min.X + margin, Y: bounds.Min.Y + margin, Z: bounds.Max.Z - margin},
+		{X: bounds.Max.X - margin, Y: bounds.Min.Y + margin, Z: bounds.Max.Z - margin},
+		{X: bounds.Min.X + margin, Y: bounds.Max.Y - margin, Z: bounds.Max.Z - margin},
+		{X: bounds.Max.X - margin, Y: bounds.Max.Y - margin, Z: bounds.Max.Z - margin},
 		// 6个面的中心点
-		{center.X, center.Y, bounds.Min.Z + margin},
-		{center.X, center.Y, bounds.Max.Z - margin},
-		{center.X, bounds.Min.Y + margin, center.Z},
-		{center.X, bounds.Max.Y - margin, center.Z},
-		{bounds.Min.X + margin, center.Y, center.Z},
-		{bounds.Max.X - margin, center.Y, center.Z},
+		{X: center.X, Y: center.Y, Z: bounds.Min.Z + margin},
+		{X: center.X, Y: center.Y, Z: bounds.Max.Z - margin},
+		{X: center.X, Y: bounds.Min.Y + margin, Z: center.Z},
+		{X: center.X, Y: bounds.Max.Y - margin, Z: center.Z},
+		{X: bounds.Min.X + margin, Y: center.Y, Z: center.Z},
+		{X: bounds.Max.X - margin, Y: center.Y, Z: center.Z},
 	}
 
 	return points
@@ -955,8 +955,8 @@ func (nba *NodeBasedAStarPathfinder) findSafePointInNode(node *PathNode) *math32
 	// 缩小搜索范围以避免边界碰撞
 	margin := math32.Min(math32.Min(size.X, size.Y), size.Z) * 0.1
 	searchBounds := geometry.AABB{
-		Min: bounds.Min.Add(math32.Vector3{margin, margin, margin}),
-		Max: bounds.Max.Sub(math32.Vector3{margin, margin, margin}),
+		Min: bounds.Min.Add(math32.Vector3{X: margin, Y: margin, Z: margin}),
+		Max: bounds.Max.Sub(math32.Vector3{X: margin, Y: margin, Z: margin}),
 	}
 
 	// 在搜索区域内采样
@@ -965,15 +965,15 @@ func (nba *NodeBasedAStarPathfinder) findSafePointInNode(node *PathNode) *math32
 		for j := 0; j < samples; j++ {
 			for k := 0; k < samples; k++ {
 				t := math32.Vector3{
-					float32(i) / float32(samples-1),
-					float32(j) / float32(samples-1),
-					float32(k) / float32(samples-1),
+					X: float32(i) / float32(samples-1),
+					Y: float32(j) / float32(samples-1),
+					Z: float32(k) / float32(samples-1),
 				}
 
 				testPoint := math32.Vector3{
-					searchBounds.Min.X + t.X*(searchBounds.Max.X-searchBounds.Min.X),
-					searchBounds.Min.Y + t.Y*(searchBounds.Max.Y-searchBounds.Min.Y),
-					searchBounds.Min.Z + t.Z*(searchBounds.Max.Z-searchBounds.Min.Z),
+					X: searchBounds.Min.X + t.X*(searchBounds.Max.X-searchBounds.Min.X),
+					Y: searchBounds.Min.Y + t.Y*(searchBounds.Max.Y-searchBounds.Min.Y),
+					Z: searchBounds.Min.Z + t.Z*(searchBounds.Max.Z-searchBounds.Min.Z),
 				}
 
 				if !nba.octree.IsAgentOccupied(nba.agent, testPoint) {
@@ -1016,9 +1016,9 @@ func (nba *NodeBasedAStarPathfinder) validatePathSafety(path []math32.Vector3) [
 func (nba *NodeBasedAStarPathfinder) findSafeMidpoint(start, end math32.Vector3) *math32.Vector3 {
 	// 简单的中点策略
 	mid := math32.Vector3{
-		(start.X + end.X) / 2,
-		(start.Y + end.Y) / 2,
-		(start.Z + end.Z) / 2,
+		X: (start.X + end.X) / 2,
+		Y: (start.Y + end.Y) / 2,
+		Z: (start.Z + end.Z) / 2,
 	}
 
 	// 检查中点是否安全
