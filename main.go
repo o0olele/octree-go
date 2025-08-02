@@ -96,7 +96,7 @@ func buildOctreeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = builder.SaveNavigationData(navData, "test.nav")
+	err = builder.Save(navData, "test.nav")
 	if err != nil {
 		fmt.Println("Failed to save navigation data: ", err)
 	}
@@ -344,24 +344,6 @@ func loadHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// 获取导航文件信息
-func getNavigationInfoHandler(w http.ResponseWriter, r *http.Request) {
-	filename := r.URL.Query().Get("filename")
-	if filename == "" {
-		http.Error(w, "Missing filename parameter", http.StatusBadRequest)
-		return
-	}
-
-	info, err := builder.GetFileInfo(filename)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get file info: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(info)
-}
-
 func addAgentHandler(w http.ResponseWriter, r *http.Request) {
 	var req octree.Agent
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -394,7 +376,6 @@ func main() {
 	api.HandleFunc("/pathgraph", getPathGraphHandler).Methods("GET")
 	api.HandleFunc("/save", saveHandler).Methods("POST")
 	api.HandleFunc("/load", loadHandler).Methods("POST")
-	api.HandleFunc("/navigation/info", getNavigationInfoHandler).Methods("GET")
 
 	// 静态文件路由
 	r.PathPrefix("/").Handler(http.HandlerFunc(staticFileHandler))
