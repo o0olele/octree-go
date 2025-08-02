@@ -21,8 +21,8 @@ type NavigationQuery struct {
 	// 缓存的几何体数据（用于碰撞检测）
 	geometries []geometry.Triangle
 
-	// 空间查询优化
-	spatialCache map[math32.Vector3]int32 // 位置到最近节点的缓存
+	// 空间查询优化 - 使用LRU缓存
+	spatialCache *math32.Cache[uint64, int32]
 
 	// 路径偏好配置
 	pathPreferences *PathPreferences
@@ -30,7 +30,11 @@ type NavigationQuery struct {
 
 // NewNavigationQuery 创建新的导航查询器
 func NewNavigationQuery(navData *builder.NavigationData) (*NavigationQuery, error) {
+	return NewNavigationQueryWithCacheSize(navData, 1000) // 默认缓存1000个条目
+}
 
+// NewNavigationQueryWithCacheSize 创建新的导航查询器，指定缓存大小
+func NewNavigationQueryWithCacheSize(navData *builder.NavigationData, cacheSize int) (*NavigationQuery, error) {
 	if err := navData.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid navigation data: %v", err)
 	}
@@ -48,7 +52,7 @@ func NewNavigationQuery(navData *builder.NavigationData) (*NavigationQuery, erro
 		navData:         navData,
 		stepSize:        navData.StepSize,
 		geometries:      geometries,
-		spatialCache:    make(map[math32.Vector3]int32),
+		spatialCache:    math32.NewCache[uint64, int32](cacheSize),
 		pathPreferences: DefaultPathPreferences(),
 	}
 
@@ -124,7 +128,7 @@ func (nq *NavigationQuery) FindPath(start, end math32.Vector3) []math32.Vector3 
 // findClosestNode 查找最近的节点
 func (nq *NavigationQuery) findClosestNode(pos math32.Vector3) int32 {
 	// 检查缓存
-	if nodeID, exists := nq.spatialCache[pos]; exists {
+	if nodeID, exists := nq.spatialCache.Get(pos.Hash()); exists {
 		return nodeID
 	}
 
@@ -132,7 +136,7 @@ func (nq *NavigationQuery) findClosestNode(pos math32.Vector3) int32 {
 	nodeID := nq.findClosestNodeMorton(pos)
 
 	// 缓存结果
-	nq.spatialCache[pos] = nodeID
+	nq.spatialCache.Put(pos.Hash(), nodeID)
 
 	return nodeID
 }
@@ -292,7 +296,17 @@ func (nq *NavigationQuery) GetNavData() *builder.NavigationData {
 
 // ClearCache 清除空间缓存
 func (nq *NavigationQuery) ClearCache() {
-	nq.spatialCache = make(map[math32.Vector3]int32)
+	nq.spatialCache.Clear()
+}
+
+// SetCacheSize 动态调整缓存大小
+func (nq *NavigationQuery) SetCacheSize(capacity int) {
+	nq.spatialCache = math32.NewCache[uint64, int32](capacity)
+}
+
+// GetCacheSize 获取当前缓存容量
+func (nq *NavigationQuery) GetCacheSize() int {
+	return nq.spatialCache.Len()
 }
 
 // GetStats 获取统计信息
@@ -301,7 +315,7 @@ func (nq *NavigationQuery) GetStats() NavigationStats {
 		NodeCount:     len(nq.navData.Nodes),
 		EdgeCount:     len(nq.navData.Edges),
 		GeometryCount: len(nq.geometries),
-		CacheSize:     len(nq.spatialCache),
+		CacheSize:     nq.spatialCache.Len(),
 		DataSize:      nq.navData.GetDataSize(),
 	}
 }
