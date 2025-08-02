@@ -11,9 +11,11 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/gorilla/mux"
+	"github.com/o0olele/octree-go/builder"
 	"github.com/o0olele/octree-go/geometry"
 	"github.com/o0olele/octree-go/math32"
 	"github.com/o0olele/octree-go/octree"
+	"github.com/o0olele/octree-go/query"
 	"github.com/rs/cors"
 )
 
@@ -21,29 +23,14 @@ import (
 // import "./octree"
 
 // 全局实例
-var globalOctree *octree.Octree
-var nodeBasedAstarPathfinder *octree.NodeBasedAStarPathfinder
-var navigationBuilder *octree.NavigationBuilder
-var navigationQuery *octree.NavigationQuery
+var navigationBuilder *builder.Builder
+var navigationQuery *query.NavigationQuery
 var globalAgent *octree.Agent
-
-// 寻路算法接口
-type Pathfinder interface {
-	SetAgent(agent *octree.Agent)
-	GetAgent() *octree.Agent
-	SetStepSize(stepSize float32)
-	GetStepSize() float32
-	ToGridCoord(pos math32.Vector3) (int, int, int)
-	FindPath(start, end math32.Vector3) []math32.Vector3
-	SmoothPath(path []math32.Vector3) []math32.Vector3
-}
-
-var currentPathfinder Pathfinder
 
 // 初始化请求结构
 type InitRequest struct {
 	Bounds   geometry.AABB `json:"bounds"`
-	MaxDepth int           `json:"max_depth"`
+	MaxDepth uint8         `json:"max_depth"`
 	MinSize  float32       `json:"min_size"`
 }
 
@@ -81,11 +68,7 @@ func initOctreeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 创建导航构建器
-	navigationBuilder = octree.NewNavigationBuilder(req.Bounds, req.MaxDepth, req.MinSize, req.MinSize)
-
-	// 保持兼容性，也创建传统的octree
-	globalOctree = octree.NewOctree(req.Bounds, req.MaxDepth, req.MinSize)
-	currentPathfinder = nil
+	navigationBuilder = builder.NewBuilder(req.Bounds, req.MaxDepth, req.MinSize, req.MinSize)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "initialized"})
@@ -107,16 +90,15 @@ func buildOctreeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 创建导航查询器
-	navigationQuery, err = octree.NewNavigationQuery(navData)
+	navigationQuery, err = query.NewNavigationQuery(navData)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create navigation query: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// 保持兼容性，也构建传统的octree和pathfinder
-	if globalOctree != nil {
-		globalOctree.Build()
-		//nodeBasedAstarPathfinder = octree.NewNodeBasedAStarPathfinderWithParallel(globalOctree, globalAgent, globalOctree.MinSize, true)
+	err = builder.SaveNavigationData(navData, "test.nav")
+	if err != nil {
+		fmt.Println("Failed to save navigation data: ", err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -125,12 +107,12 @@ func buildOctreeHandler(w http.ResponseWriter, r *http.Request) {
 
 // 获取八叉树结构
 func getOctreeHandler(w http.ResponseWriter, r *http.Request) {
-	if globalOctree == nil {
+	if navigationBuilder == nil {
 		http.Error(w, "Octree not initialized", http.StatusBadRequest)
 		return
 	}
 
-	data, err := globalOctree.ToJSON()
+	data, err := navigationBuilder.GetOctree().ToJSON()
 	if err != nil {
 		http.Error(w, "Failed to serialize octree", http.StatusInternalServerError)
 		return
@@ -166,8 +148,6 @@ func findPathHandler(w http.ResponseWriter, r *http.Request) {
 			navigationQuery.SetAgent(nil) // 清除Agent，使用点检测
 		}
 
-		navigationQuery.SetOctree(globalOctree)
-
 		begTime := time.Now()
 		path = navigationQuery.FindPath(req.Start, req.End)
 		endTime := time.Now()
@@ -193,46 +173,6 @@ func findPathHandler(w http.ResponseWriter, r *http.Request) {
 			debugInfo["agentHeight"] = agent.Height
 		}
 
-	} else if nodeBasedAstarPathfinder != nil && globalOctree != nil {
-		// 回退到传统方法
-		currentPathfinder = nodeBasedAstarPathfinder
-
-		// 更新寻路器的步长
-		if req.StepSize > 0 {
-			currentPathfinder.SetStepSize(req.StepSize)
-		}
-
-		// 设置Agent（如果提供了Agent参数）
-		if req.AgentRadius > 0 && req.AgentHeight > 0 {
-			agent := octree.NewAgent(req.AgentRadius, req.AgentHeight)
-			currentPathfinder.SetAgent(agent)
-		} else {
-			currentPathfinder.SetAgent(nil) // 清除Agent，使用点检测
-		}
-
-		begTime := time.Now()
-		path = currentPathfinder.FindPath(req.Start, req.End)
-		endTime := time.Now()
-
-		fmt.Printf("Legacy pathfinding time: %v\n", endTime.Sub(begTime))
-
-		// 添加调试信息
-		debugInfo = map[string]interface{}{
-			"stepSize":    currentPathfinder.GetStepSize(),
-			"agentRadius": 0.0,
-			"agentHeight": 0.0,
-			"startValid":  !globalOctree.IsOccupied(req.Start),
-			"endValid":    !globalOctree.IsOccupied(req.End),
-			"method":      "NodeBasedAStarPathfinder",
-		}
-
-		if currentPathfinder.GetAgent() != nil {
-			agent := currentPathfinder.GetAgent()
-			debugInfo["agentRadius"] = agent.Radius
-			debugInfo["agentHeight"] = agent.Height
-			debugInfo["startValidAgent"] = !globalOctree.IsAgentOccupied(agent, req.Start)
-			debugInfo["endValidAgent"] = !globalOctree.IsAgentOccupied(agent, req.End)
-		}
 	} else {
 		http.Error(w, "No pathfinder available", http.StatusBadRequest)
 		return
@@ -251,7 +191,7 @@ func findPathHandler(w http.ResponseWriter, r *http.Request) {
 
 // 检查点是否被占用
 func checkOccupiedHandler(w http.ResponseWriter, r *http.Request) {
-	if globalOctree == nil {
+	if navigationQuery == nil {
 		http.Error(w, "Octree not initialized", http.StatusBadRequest)
 		return
 	}
@@ -270,88 +210,23 @@ func checkOccupiedHandler(w http.ResponseWriter, r *http.Request) {
 	var occupied bool
 	if agentRadius > 0 && agentHeight > 0 {
 		agent := octree.NewAgent(float32(agentRadius), float32(agentHeight))
-		occupied = globalOctree.IsAgentOccupied(agent, point)
+		occupied = navigationBuilder.GetOctree().IsAgentOccupied(agent, point)
 	} else {
-		occupied = globalOctree.IsOccupied(point)
+		occupied = navigationBuilder.GetOctree().IsOccupied(point)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"occupied": occupied})
 }
 
-// 调试处理函数
-func debugHandler(w http.ResponseWriter, r *http.Request) {
-	if globalOctree == nil || currentPathfinder == nil {
-		http.Error(w, "Octree not initialized", http.StatusBadRequest)
-		return
-	}
-
-	var req PathfindRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	if nodeBasedAstarPathfinder != nil {
-		currentPathfinder = nodeBasedAstarPathfinder
-	} else {
-		http.Error(w, "Node-based pathfinder not initialized", http.StatusBadRequest)
-		return
-	}
-
-	// 更新寻路器的步长
-	if req.StepSize > 0 {
-		currentPathfinder.SetStepSize(req.StepSize)
-	}
-
-	// 设置Agent（支持新旧两种格式）
-	var agent *octree.Agent
-	if req.Agent != nil {
-		// 使用新格式的Agent对象
-		agent = req.Agent
-	} else if req.AgentRadius > 0 && req.AgentHeight > 0 {
-		// 向后兼容旧格式
-		agent = octree.NewAgent(req.AgentRadius, req.AgentHeight)
-	}
-
-	currentPathfinder.SetAgent(agent)
-
-	// 获取网格坐标
-	startGridX, startGridY, startGridZ := currentPathfinder.ToGridCoord(req.Start)
-	endGridX, endGridY, endGridZ := currentPathfinder.ToGridCoord(req.End)
-
-	// 详细调试信息
-	debugInfo := map[string]interface{}{
-		"startPos":   req.Start,
-		"endPos":     req.End,
-		"startGrid":  []int{startGridX, startGridY, startGridZ},
-		"endGrid":    []int{endGridX, endGridY, endGridZ},
-		"stepSize":   currentPathfinder.GetStepSize(),
-		"startValid": !globalOctree.IsOccupied(req.Start),
-		"endValid":   !globalOctree.IsOccupied(req.End),
-		"gridDiff":   []int{endGridX - startGridX, endGridY - startGridY, endGridZ - startGridZ},
-	}
-
-	if currentPathfinder.GetAgent() != nil {
-		agent := currentPathfinder.GetAgent()
-		debugInfo["agentRadius"] = agent.Radius
-		debugInfo["agentHeight"] = agent.Height
-		debugInfo["startValidAgent"] = !globalOctree.IsAgentOccupied(agent, req.Start)
-		debugInfo["endValidAgent"] = !globalOctree.IsAgentOccupied(agent, req.End)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(debugInfo)
-}
-
 // 获取路径图数据
 func getPathGraphHandler(w http.ResponseWriter, r *http.Request) {
-	if nodeBasedAstarPathfinder == nil {
+	if navigationBuilder == nil {
 		http.Error(w, "Node-based pathfinder not initialized", http.StatusBadRequest)
 		return
 	}
 
-	pathGraphData := nodeBasedAstarPathfinder.ToPathGraphData()
+	pathGraphData := navigationBuilder.GetPathFinder().ToPathGraphData()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(pathGraphData)
@@ -359,7 +234,7 @@ func getPathGraphHandler(w http.ResponseWriter, r *http.Request) {
 
 // 批量添加三角形mesh
 func addMeshHandler(w http.ResponseWriter, r *http.Request) {
-	if globalOctree == nil {
+	if navigationBuilder == nil {
 		http.Error(w, "Octree not initialized", http.StatusBadRequest)
 		return
 	}
@@ -371,7 +246,6 @@ func addMeshHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, triangle := range triangles {
-		globalOctree.AddTriangle(triangle)
 		navigationBuilder.AddTriangle(triangle)
 	}
 
@@ -418,19 +292,19 @@ func saveHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 如果需要优化数据
-	if req.OptimizeData {
-		optimizedData := octree.OptimizeNavigationData(navData)
+	// if req.OptimizeData {
+	// 	optimizedData := octree.OptimizeNavigationData(navData)
 
-		// 分析优化效果
-		analysis := octree.AnalyzeOptimization(navData, optimizedData)
-		fmt.Printf("Optimization analysis: %+v\n", analysis)
+	// 	// 分析优化效果
+	// 	analysis := octree.AnalyzeOptimization(navData, optimizedData)
+	// 	fmt.Printf("Optimization analysis: %+v\n", analysis)
 
-		// 转换回标准格式进行保存
-		navData = octree.DeoptimizeNavigationData(optimizedData)
-	}
+	// 	// 转换回标准格式进行保存
+	// 	navData = octree.DeoptimizeNavigationData(optimizedData)
+	// }
 
 	// 保存到文件
-	if err := octree.SaveNavigationData(navData, req.NavigationFilename); err != nil {
+	if err := builder.Save(navData, req.NavigationFilename); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to save navigation data: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -449,7 +323,7 @@ func loadHandler(w http.ResponseWriter, r *http.Request) {
 
 	begTime := time.Now()
 	// 加载导航数据并创建查询器
-	query, err := octree.LoadAndQuery(req.NavigationFilename)
+	query, err := query.LoadAndQuery(req.NavigationFilename)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to load navigation data: %v", err), http.StatusInternalServerError)
 		return
@@ -478,7 +352,7 @@ func getNavigationInfoHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := octree.GetFileInfo(filename)
+	info, err := builder.GetFileInfo(filename)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to get file info: %v", err), http.StatusInternalServerError)
 		return
@@ -517,7 +391,6 @@ func main() {
 	api.HandleFunc("/octree", getOctreeHandler).Methods("GET")
 	api.HandleFunc("/pathfind", findPathHandler).Methods("POST")
 	api.HandleFunc("/occupied", checkOccupiedHandler).Methods("GET")
-	api.HandleFunc("/debug", debugHandler).Methods("POST")
 	api.HandleFunc("/pathgraph", getPathGraphHandler).Methods("GET")
 	api.HandleFunc("/save", saveHandler).Methods("POST")
 	api.HandleFunc("/load", loadHandler).Methods("POST")
