@@ -11,6 +11,8 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/gorilla/mux"
+	"github.com/o0olele/octree-go/geometry"
+	"github.com/o0olele/octree-go/math32"
 	"github.com/o0olele/octree-go/octree"
 	"github.com/rs/cors"
 )
@@ -29,20 +31,20 @@ var globalAgent *octree.Agent
 type Pathfinder interface {
 	SetAgent(agent *octree.Agent)
 	GetAgent() *octree.Agent
-	SetStepSize(stepSize float64)
-	GetStepSize() float64
-	ToGridCoord(pos octree.Vector3) (int, int, int)
-	FindPath(start, end octree.Vector3) []octree.Vector3
-	SmoothPath(path []octree.Vector3) []octree.Vector3
+	SetStepSize(stepSize float32)
+	GetStepSize() float32
+	ToGridCoord(pos math32.Vector3) (int, int, int)
+	FindPath(start, end math32.Vector3) []math32.Vector3
+	SmoothPath(path []math32.Vector3) []math32.Vector3
 }
 
 var currentPathfinder Pathfinder
 
 // 初始化请求结构
 type InitRequest struct {
-	Bounds   octree.AABB `json:"bounds"`
-	MaxDepth int         `json:"max_depth"`
-	MinSize  float64     `json:"min_size"`
+	Bounds   geometry.AABB `json:"bounds"`
+	MaxDepth int           `json:"max_depth"`
+	MinSize  float32       `json:"min_size"`
 }
 
 // 添加几何体请求结构
@@ -53,17 +55,17 @@ type AddGeometryRequest struct {
 
 // 路径查找请求结构
 type PathfindRequest struct {
-	Start       octree.Vector3 `json:"start"`
-	End         octree.Vector3 `json:"end"`
-	StepSize    float64        `json:"step_size"`
-	AgentRadius float64        `json:"agent_radius,omitempty"` // Agent半径，可选（向后兼容）
-	AgentHeight float64        `json:"agent_height,omitempty"` // Agent高度，可选（向后兼容）
+	Start       math32.Vector3 `json:"start"`
+	End         math32.Vector3 `json:"end"`
+	StepSize    float32        `json:"step_size"`
+	AgentRadius float32        `json:"agent_radius,omitempty"` // Agent半径，可选（向后兼容）
+	AgentHeight float32        `json:"agent_height,omitempty"` // Agent高度，可选（向后兼容）
 	Agent       *octree.Agent  `json:"agent,omitempty"`        // Agent对象，可选
 }
 
 // 路径查找响应结构
 type PathfindResponse struct {
-	Path   []octree.Vector3 `json:"path"`
+	Path   []math32.Vector3 `json:"path"`
 	Found  bool             `json:"found"`
 	Length int              `json:"length"`
 	Debug  interface{}      `json:"debug,omitempty"`
@@ -88,70 +90,6 @@ func initOctreeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "initialized"})
 	fmt.Println("Navigation builder initialized")
-}
-
-// 添加几何体
-func addGeometryHandler(w http.ResponseWriter, r *http.Request) {
-	if navigationBuilder == nil {
-		http.Error(w, "Navigation builder not initialized", http.StatusBadRequest)
-		return
-	}
-
-	var req AddGeometryRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	var geom octree.Geometry
-	switch req.Type {
-	case "triangle":
-		var triangle octree.Triangle
-		if err := json.Unmarshal(req.Data, &triangle); err != nil {
-			http.Error(w, "Invalid triangle data", http.StatusBadRequest)
-			return
-		}
-		geom = triangle
-
-	case "box":
-		var box octree.Box
-		if err := json.Unmarshal(req.Data, &box); err != nil {
-			http.Error(w, "Invalid box data", http.StatusBadRequest)
-			return
-		}
-		geom = box
-
-	case "capsule":
-		var capsule octree.Capsule
-		if err := json.Unmarshal(req.Data, &capsule); err != nil {
-			http.Error(w, "Invalid capsule data", http.StatusBadRequest)
-			return
-		}
-		geom = capsule
-
-	case "convex_mesh":
-		var convexMesh octree.ConvexMesh
-		if err := json.Unmarshal(req.Data, &convexMesh); err != nil {
-			http.Error(w, "Invalid convex mesh data", http.StatusBadRequest)
-			return
-		}
-		geom = convexMesh
-
-	default:
-		http.Error(w, "Unknown geometry type", http.StatusBadRequest)
-		return
-	}
-
-	// 添加到导航构建器
-	navigationBuilder.AddGeometry(geom)
-
-	// 保持兼容性，也添加到传统octree
-	if globalOctree != nil {
-		globalOctree.AddGeometry(geom)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "added"})
 }
 
 // 构建导航网格
@@ -210,7 +148,7 @@ func findPathHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var path []octree.Vector3
+	var path []math32.Vector3
 	var debugInfo map[string]interface{}
 
 	// 优先使用新的NavigationQuery
@@ -323,7 +261,7 @@ func checkOccupiedHandler(w http.ResponseWriter, r *http.Request) {
 	y, _ := strconv.ParseFloat(r.URL.Query().Get("y"), 64)
 	z, _ := strconv.ParseFloat(r.URL.Query().Get("z"), 64)
 
-	point := octree.Vector3{X: x, Y: y, Z: z}
+	point := math32.Vector3{X: float32(x), Y: float32(y), Z: float32(z)}
 
 	// 检查是否有Agent参数
 	agentRadius, _ := strconv.ParseFloat(r.URL.Query().Get("agent_radius"), 64)
@@ -331,7 +269,7 @@ func checkOccupiedHandler(w http.ResponseWriter, r *http.Request) {
 
 	var occupied bool
 	if agentRadius > 0 && agentHeight > 0 {
-		agent := octree.NewAgent(agentRadius, agentHeight)
+		agent := octree.NewAgent(float32(agentRadius), float32(agentHeight))
 		occupied = globalOctree.IsAgentOccupied(agent, point)
 	} else {
 		occupied = globalOctree.IsOccupied(point)
@@ -426,15 +364,15 @@ func addMeshHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var triangles []octree.Triangle
+	var triangles []geometry.Triangle
 	if err := json.NewDecoder(r.Body).Decode(&triangles); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
 	for _, triangle := range triangles {
-		globalOctree.AddGeometry(triangle)
-		navigationBuilder.AddGeometry(triangle)
+		globalOctree.AddTriangle(triangle)
+		navigationBuilder.AddTriangle(triangle)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -574,7 +512,6 @@ func main() {
 	api := r.PathPrefix("/api").Subrouter()
 	api.HandleFunc("/init", initOctreeHandler).Methods("POST")
 	api.HandleFunc("/agent", addAgentHandler).Methods("POST")
-	api.HandleFunc("/geometry", addGeometryHandler).Methods("POST")
 	api.HandleFunc("/mesh", addMeshHandler).Methods("POST")
 	api.HandleFunc("/build", buildOctreeHandler).Methods("POST")
 	api.HandleFunc("/octree", getOctreeHandler).Methods("GET")
