@@ -128,7 +128,7 @@ func SphereTriangleIntersect(center math32.Vector3, radius float32, p0, p1, p2 m
 
 // CapsuleTriangleIntersect 胶囊体-三角形相交检测 (文章的核心)
 // 返回: 相交, 碰撞点, 碰撞法线, 穿透深度
-func CapsuleTriangleIntersect(capsule Capsule, p0, p1, p2 math32.Vector3) (bool, math32.Vector3, math32.Vector3, float32) {
+func CapsuleTriangleIntersect(capsule *Capsule, p0, p1, p2 math32.Vector3) (bool, math32.Vector3, math32.Vector3, float32) {
 	radius := capsule.Radius
 	base := capsule.Start
 	tip := capsule.End

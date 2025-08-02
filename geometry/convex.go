@@ -8,7 +8,7 @@ type ConvexMesh struct {
 	Faces    [][]int          `json:"faces"`    // 面，每个面是顶点索引的数组
 }
 
-func (cm ConvexMesh) GetBounds() AABB {
+func (cm *ConvexMesh) GetBounds() AABB {
 	if len(cm.Vertices) == 0 {
 		return AABB{
 			Min: math32.Vector3{X: 0, Y: 0, Z: 0},
@@ -43,12 +43,12 @@ func (cm ConvexMesh) GetBounds() AABB {
 	return AABB{min, max}
 }
 
-func (cm ConvexMesh) IntersectsAABB(aabb AABB) bool {
+func (cm *ConvexMesh) IntersectsAABB(aabb AABB) bool {
 	bounds := cm.GetBounds()
 	return bounds.Intersects(aabb)
 }
 
-func (cm ConvexMesh) ContainsPoint(point math32.Vector3) bool {
+func (cm *ConvexMesh) ContainsPoint(point math32.Vector3) bool {
 	// 使用分离轴定理(SAT)的简化版本来检测点是否在凸包内
 	// 对于凸包，如果点在所有面的内侧，则点在凸包内
 	for _, face := range cm.Faces {
@@ -86,6 +86,6 @@ func (cm ConvexMesh) ContainsPoint(point math32.Vector3) bool {
 	return true
 }
 
-func (cm ConvexMesh) GetType() string {
+func (cm *ConvexMesh) GetType() string {
 	return "convex_mesh"
 }

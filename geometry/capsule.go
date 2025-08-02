@@ -11,7 +11,7 @@ type Capsule struct {
 	Radius float32        `json:"radius"`
 }
 
-func (c Capsule) GetBounds() AABB {
+func (c *Capsule) GetBounds() AABB {
 	minX := math32.Min(c.Start.X, c.End.X) - c.Radius
 	maxX := math32.Max(c.Start.X, c.End.X) + c.Radius
 	minY := math32.Min(c.Start.Y, c.End.Y) - c.Radius
@@ -24,14 +24,14 @@ func (c Capsule) GetBounds() AABB {
 	}
 }
 
-func (c Capsule) IntersectsAABB(aabb AABB) bool {
+func (c *Capsule) IntersectsAABB(aabb AABB) bool {
 	bounds := c.GetBounds()
 	return !(bounds.Max.X < aabb.Min.X || bounds.Min.X > aabb.Max.X ||
 		bounds.Max.Y < aabb.Min.Y || bounds.Min.Y > aabb.Max.Y ||
 		bounds.Max.Z < aabb.Min.Z || bounds.Min.Z > aabb.Max.Z)
 }
 
-func (c Capsule) ContainsPoint(point math32.Vector3) bool {
+func (c *Capsule) ContainsPoint(point math32.Vector3) bool {
 	// 计算点到胶囊轴线的距离
 	axis := c.End.Sub(c.Start)
 	toPoint := point.Sub(c.Start)
@@ -45,6 +45,6 @@ func (c Capsule) ContainsPoint(point math32.Vector3) bool {
 	return point.Distance(closest) <= c.Radius
 }
 
-func (c Capsule) GetType() string {
+func (c *Capsule) GetType() string {
 	return "capsule"
 }

@@ -11,7 +11,7 @@ type Triangle struct {
 	C math32.Vector3 `json:"c"`
 }
 
-func (t Triangle) GetBounds() AABB {
+func (t *Triangle) GetBounds() AABB {
 	minX := math32.Min(math32.Min(t.A.X, t.B.X), t.C.X)
 	maxX := math32.Max(math32.Max(t.A.X, t.B.X), t.C.X)
 	minY := math32.Min(math32.Min(t.A.Y, t.B.Y), t.C.Y)
@@ -24,7 +24,7 @@ func (t Triangle) GetBounds() AABB {
 	}
 }
 
-func (t Triangle) IntersectsAABB(aabb AABB) bool {
+func (t *Triangle) IntersectsAABB(aabb AABB) bool {
 	// 首先进行快速包围盒检测
 	bounds := t.GetBounds()
 	if !bounds.Intersects(aabb) {
@@ -102,7 +102,7 @@ func (t Triangle) IntersectsAABB(aabb AABB) bool {
 }
 
 // testSeparatingAxis 测试给定轴上的投影是否分离
-func (t Triangle) testSeparatingAxis(axis math32.Vector3, v0, v1, v2, halfSize math32.Vector3) bool {
+func (t *Triangle) testSeparatingAxis(axis math32.Vector3, v0, v1, v2, halfSize math32.Vector3) bool {
 	// 计算三角形顶点在轴上的投影
 	p0 := v0.Dot(axis)
 	p1 := v1.Dot(axis)
@@ -119,7 +119,7 @@ func (t Triangle) testSeparatingAxis(axis math32.Vector3, v0, v1, v2, halfSize m
 	return !(triMax < -r || triMin > r)
 }
 
-func (t Triangle) ContainsPoint(point math32.Vector3) bool {
+func (t *Triangle) ContainsPoint(point math32.Vector3) bool {
 	bounds := t.GetBounds()
 	return bounds.Contains(point)
 
@@ -133,7 +133,7 @@ func (t Triangle) ContainsPoint(point math32.Vector3) bool {
 }
 
 // isPointOnTrianglePlane 检查点是否在三角形所在的平面上（允许一定的误差）
-func (t Triangle) isPointOnTrianglePlane(point math32.Vector3) bool {
+func (t *Triangle) isPointOnTrianglePlane(point math32.Vector3) bool {
 	// 计算三角形的法向量
 	edge1 := t.B.Sub(t.A)
 	edge2 := t.C.Sub(t.A)
@@ -157,12 +157,12 @@ func (t Triangle) isPointOnTrianglePlane(point math32.Vector3) bool {
 	return distance < tolerance
 }
 
-func (t Triangle) GetNormal() math32.Vector3 {
+func (t *Triangle) GetNormal() math32.Vector3 {
 	edge1 := t.B.Sub(t.A)
 	edge2 := t.C.Sub(t.A)
 	return edge1.Cross(edge2).Normalize()
 }
 
-func (t Triangle) GetType() string {
+func (t *Triangle) GetType() string {
 	return "triangle"
 }
