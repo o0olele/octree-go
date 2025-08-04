@@ -2,7 +2,6 @@ package octree
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/o0olele/octree-go/geometry"
 	"github.com/o0olele/octree-go/math32"
@@ -53,7 +52,6 @@ type Octree struct {
 	MaxDepth    uint8       `json:"max_depth"`
 	MinSize     float32     `json:"min_size"`
 	triangles   []geometry.Triangle
-	nodes       []OctreeNode
 	buildHelper *OctreeBuildHelper
 }
 
@@ -82,8 +80,6 @@ func (o *Octree) SetHelper(helper *OctreeBuildHelper) {
 // AddTriangle 添加三角形面到八叉树
 func (o *Octree) AddTriangle(triangle geometry.Triangle) {
 	o.triangles = append(o.triangles, triangle)
-	// o.triangleIndex += 1
-	// o.insertTriangle(o.Root, o.triangleIndex, &o.triangles[o.triangleIndex])
 }
 
 func (o *Octree) GetTrianglesNum() int {
@@ -218,34 +214,10 @@ func (o *Octree) aabbIntersects(a, b geometry.AABB) bool {
 		a.Max.Z < b.Min.Z || a.Min.Z > b.Max.Z)
 }
 
-var Log bool
-
 // capsuleIntersectsTriangle 胶囊体与三角形相交检测
 func (o *Octree) capsuleIntersectsTriangle(capsule *geometry.Capsule, triangle *geometry.Triangle) bool {
 	intersect, _, _, _ := geometry.CapsuleTriangleIntersect(capsule, triangle.A, triangle.B, triangle.C)
 	return intersect
-	// // 简化实现：检查胶囊体轴线到三角形各边的距离
-	// edges := []struct{ start, end Vector3 }{
-	// 	{triangle.A, triangle.B},
-	// 	{triangle.B, triangle.C},
-	// 	{triangle.C, triangle.A},
-	// }
-
-	// for _, edge := range edges {
-	// 	if o.lineSegmentDistance(capsule.Start, capsule.End, edge.start, edge.end) < capsule.Radius {
-	// 		return true
-	// 	}
-	// }
-
-	// // 检查三角形顶点到胶囊体轴线的距离
-	// vertices := []Vector3{triangle.A, triangle.B, triangle.C}
-	// for _, vertex := range vertices {
-	// 	if pointToLineSegmentDistance(vertex, capsule.Start, capsule.End) < capsule.Radius {
-	// 		return true
-	// 	}
-	// }
-
-	// return false
 }
 
 // capsuleIntersectsCapsule 胶囊体与胶囊体相交检测
@@ -352,7 +324,7 @@ func (o *Octree) isOccupiedRecursive(node *OctreeNode, point math32.Vector3) boo
 }
 
 // isPathClear 检查两点之间的路径是否畅通
-func (o *Octree) isPathClear(agent *Agent, start, end math32.Vector3) bool {
+func (o *Octree) IsPathClear(agent *Agent, start, end math32.Vector3) bool {
 
 	// 计算方向向量和距离
 	direction := end.Sub(start)
@@ -380,9 +352,6 @@ func (o *Octree) isPathClear(agent *Agent, start, end math32.Vector3) bool {
 
 		// 如果有Agent半径，还需要检查Agent碰撞
 		occupied := o.IsAgentOccupied(agent, samplePoint)
-		if Log {
-			fmt.Println(start, end, agent, samplePoint, occupied)
-		}
 		if occupied {
 			return false
 		}
