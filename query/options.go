@@ -24,6 +24,10 @@ func DefaultPathPreferences() *PathPreferences {
 	}
 }
 
+func (nq *NavigationQuery) GetPathPreferences() *PathPreferences {
+	return nq.pathPreferences
+}
+
 // calculateEnhancedMovementCost 计算增强的移动成本，考虑路径偏好
 func (nq *NavigationQuery) calculateEnhancedMovementCost(currentNodeID, neighborNodeID int32) float32 {
 	currentNode := &nq.navData.Nodes[currentNodeID]
