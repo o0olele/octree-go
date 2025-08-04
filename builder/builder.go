@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/o0olele/octree-go/geometry"
+	"github.com/o0olele/octree-go/math32"
 	"github.com/o0olele/octree-go/octree"
 )
 
@@ -172,6 +173,8 @@ func (nb *Builder) createNavigationData() *NavigationData {
 		MortonIndex:      mortonIndex,
 		MortonResolution: mortonResolution,
 		GeometryData:     nb.octree.GetTriangles(),
+		spatialCache:     math32.NewCache[uint64, int32](10000),
+		octree:           nb.octree,
 	}
 }
 
