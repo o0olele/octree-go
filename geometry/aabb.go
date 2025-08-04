@@ -32,6 +32,11 @@ func (aabb *AABB) Intersects(other AABB) bool {
 		aabb.Min.Z <= other.Max.Z && aabb.Max.Z >= other.Min.Z
 }
 
+// IsEmpty 检查AABB是否为空（无效）
+func (aabb *AABB) IsEmpty() bool {
+	return aabb.Min.X >= aabb.Max.X || aabb.Min.Y >= aabb.Max.Y || aabb.Min.Z >= aabb.Max.Z
+}
+
 func GetCapsuleAABB(position math32.Vector3, radius float32, height float32) AABB {
 	start := math32.Vector3{
 		X: position.X,
