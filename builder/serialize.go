@@ -103,8 +103,7 @@ func Load(filename string) (*NavigationData, error) {
 		}
 	}
 
-	var mortonResolution uint32
-	if err := binary.Read(buf, binary.LittleEndian, &mortonResolution); err != nil {
+	if err := binary.Read(buf, binary.LittleEndian, &navData.MortonResolution); err != nil {
 		return nil, fmt.Errorf("failed to read morton resolution: %v", err)
 	}
 
