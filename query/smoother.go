@@ -3,6 +3,7 @@ package query
 import (
 	"fmt"
 
+	"github.com/o0olele/octree-go/geometry"
 	"github.com/o0olele/octree-go/math32"
 	"github.com/o0olele/octree-go/octree"
 )
@@ -12,6 +13,8 @@ func (nq *NavigationQuery) SmoothPath(pathNodes []*octree.PathNode) []math32.Vec
 
 	if nq.pathPreferences.UsingCrossPoint {
 		return nq.optimizePathWithLineOfSight(nq.getCrossingPath(pathNodes))
+	} else if nq.pathPreferences.UsingDouglasPeucker {
+		return nq.optimizePathWithLineOfSight(nq.douglasPeucker(nq.getCenterPath(pathNodes), 0.1))
 	}
 
 	if len(pathNodes) <= 2 {
@@ -45,6 +48,14 @@ func (nq *NavigationQuery) SmoothPath(pathNodes []*octree.PathNode) []math32.Vec
 	}
 
 	return smoothed
+}
+
+func (nq *NavigationQuery) getCenterPath(pathNodes []*octree.PathNode) []math32.Vector3 {
+	result := make([]math32.Vector3, len(pathNodes))
+	for i, node := range pathNodes {
+		result[i] = node.Center
+	}
+	return result
 }
 
 // optimizePathWithLineOfSight 使用视线优化算法简化路径
@@ -267,4 +278,36 @@ func clamp(value, min, max float32) float32 {
 		return max
 	}
 	return value
+}
+
+func (nq *NavigationQuery) douglasPeucker(points []math32.Vector3, epsilon float32) []math32.Vector3 {
+	if len(points) <= 2 {
+		// 点数 ≤2，无法再简化
+		return points
+	}
+
+	// 找到距离首尾连线最远的点
+	var maxDist float32 = 0.0
+	index := 0
+	start := points[0]
+	end := points[len(points)-1]
+
+	for i := 1; i < len(points)-1; i++ {
+		dist := geometry.PointToLineSegmentDistance(points[i], start, end)
+		if dist > maxDist {
+			maxDist = dist
+			index = i
+		}
+	}
+
+	if maxDist < epsilon && nq.isPathClear(start, end) {
+		return []math32.Vector3{start, end}
+	}
+
+	// 递归处理两段：[0...index] 和 [index...end]
+	left := nq.douglasPeucker(points[:index+1], epsilon)
+	right := nq.douglasPeucker(points[index:], epsilon)
+
+	// 合并结果，避免重复添加中间点
+	return append(left[:len(left)-1], right...)
 }

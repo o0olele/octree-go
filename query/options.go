@@ -10,6 +10,7 @@ type PathPreferences struct {
 	BoundaryThreshold    float32 // 边界阈值（相对于stepSize的倍数）
 	EnablePathPreference bool    // 是否启用路径偏好
 	UsingCrossPoint      bool
+	UsingDouglasPeucker  bool
 }
 
 // DefaultPathPreferences 返回默认的路径偏好配置
