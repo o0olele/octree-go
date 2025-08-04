@@ -64,3 +64,15 @@ func (v Vector3) String() string {
 func (v Vector3) Hash() uint64 {
 	return uint64(v.X*100)<<32 | uint64(v.Y*100)<<16 | uint64(v.Z*100)
 }
+
+func (v Vector3) Get(i int) float32 {
+	switch i {
+	case 0:
+		return v.X
+	case 1:
+		return v.Y
+	case 2:
+		return v.Z
+	}
+	return 0
+}
