@@ -35,6 +35,7 @@ func NewNavigationQueryWithCacheSize(navData *builder.NavigationData) (*Navigati
 		pathPreferences: DefaultPathPreferences(),
 	}
 
+	navData.BuildIndexes()
 	return nq, nil
 }
 
