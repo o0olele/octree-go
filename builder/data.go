@@ -230,36 +230,5 @@ func (nd *NavigationData) Validate() error {
 
 // isPathClear 检查两点之间的路径是否畅通
 func (nd *NavigationData) IsPathClear(agent *octree.Agent, start, end math32.Vector3) bool {
-	// 计算方向向量和距离
-	direction := end.Sub(start)
-	distance := direction.Length()
-
-	if distance < 0.001 { // 距离太近，认为是同一点
-		return true
-	}
-
-	// 标准化方向向量
-	direction = direction.Scale(1.0 / distance)
-
-	agentRadius := float32(0.4)
-	if agent != nil {
-		agentRadius = agent.Radius
-	}
-	// 使用适当的步长进行采样检查
-	stepSize := math32.Max(0.1, agentRadius*0.6)
-	steps := math32.CeilToInt(distance / stepSize)
-
-	// 沿着路径进行采样检测
-	for i := 0; i <= steps; i++ {
-		t := float32(i) / float32(steps)
-		samplePoint := start.Add(direction.Scale(distance * t))
-
-		// 如果有Agent半径，还需要检查Agent碰撞
-		occupied := nd.octree.IsAgentOccupied(agent, samplePoint)
-		if occupied {
-			return false
-		}
-	}
-
-	return true
+	return nd.octree.IsPathClear(agent, start, end)
 }
