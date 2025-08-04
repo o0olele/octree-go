@@ -1,11 +1,7 @@
 package builder
 
 import (
-	"bytes"
-	"encoding/binary"
-	"encoding/gob"
 	"fmt"
-	"os"
 	"runtime"
 	"sort"
 	"time"
@@ -175,51 +171,8 @@ func (nb *Builder) createNavigationData() *NavigationData {
 		Edges:            edges,
 		MortonIndex:      mortonIndex,
 		MortonResolution: mortonResolution,
-		GeometryData:     nb.serializeGeometries(),
+		GeometryData:     nb.octree.GetTriangles(),
 	}
-}
-
-// serializeGeometries 序列化几何体数据
-func (nb *Builder) serializeGeometries() []byte {
-	if nb.octree.GetTrianglesNum() == 0 {
-		return []byte{}
-	}
-
-	var buf bytes.Buffer
-	binary.Write(&buf, binary.LittleEndian, uint32(nb.octree.GetTrianglesNum()))
-	for _, triangle := range nb.octree.GetTriangles() {
-		binary.Write(&buf, binary.LittleEndian, triangle.A)
-		binary.Write(&buf, binary.LittleEndian, triangle.B)
-		binary.Write(&buf, binary.LittleEndian, triangle.C)
-	}
-	return buf.Bytes()
-}
-
-// SaveToFile 保存导航数据到文件
-func (nb *Builder) SaveToFile(navData *NavigationData, filename string) error {
-	file, err := os.Create(filename)
-	if err != nil {
-		return fmt.Errorf("failed to create file: %v", err)
-	}
-	defer file.Close()
-
-	// 写入文件头
-	header := FileHeader{
-		Magic:   NAVIGATION_FILE_MAGIC,
-		Version: NAVIGATION_FILE_VERSION,
-	}
-
-	if err := binary.Write(file, binary.LittleEndian, header); err != nil {
-		return fmt.Errorf("failed to write header: %v", err)
-	}
-
-	// 使用gob编码写入数据
-	encoder := gob.NewEncoder(file)
-	if err := encoder.Encode(navData); err != nil {
-		return fmt.Errorf("failed to encode navigation data: %v", err)
-	}
-
-	return nil
 }
 
 // GetMemoryUsage 获取构建过程的内存使用情况

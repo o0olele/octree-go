@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/binary"
-	"encoding/gob"
 	"fmt"
 	"io"
 	"os"
-	"time"
 
 	"github.com/o0olele/octree-go/geometry"
 )
@@ -17,6 +15,52 @@ var useGzip = true
 
 func UseGzip(use bool) {
 	useGzip = use
+}
+
+func LoadBaseInfo(filename string) (*NavigationData, error) {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %v", err)
+	}
+
+	if useGzip {
+		content = Decompress(content)
+	}
+
+	buf := bytes.NewBuffer(content)
+	// 读取文件头
+	var header FileHeader
+	if err = binary.Read(buf, binary.LittleEndian, &header); err != nil {
+		return nil, fmt.Errorf("failed to read header: %v", err)
+	}
+
+	// 验证文件格式
+	if header.Magic != NAVIGATION_FILE_MAGIC {
+		return nil, fmt.Errorf("invalid file format: magic number mismatch")
+	}
+
+	if header.Version != NAVIGATION_FILE_VERSION {
+		return nil, fmt.Errorf("unsupported file version: %d", header.Version)
+	}
+
+	navData := &NavigationData{}
+
+	if err = binary.Read(buf, binary.LittleEndian, &navData.Bounds); err != nil {
+		return nil, fmt.Errorf("failed to read bounds: %v", err)
+	}
+
+	if err = binary.Read(buf, binary.LittleEndian, &navData.MaxDepth); err != nil {
+		return nil, fmt.Errorf("failed to read max depth: %v", err)
+	}
+
+	if err = binary.Read(buf, binary.LittleEndian, &navData.MinSize); err != nil {
+		return nil, fmt.Errorf("failed to read min size: %v", err)
+	}
+
+	if err = binary.Read(buf, binary.LittleEndian, &navData.StepSize); err != nil {
+		return nil, fmt.Errorf("failed to read step size: %v", err)
+	}
+	return navData, nil
 }
 
 func Load(filename string) (*NavigationData, error) {
@@ -33,7 +77,7 @@ func Load(filename string) (*NavigationData, error) {
 	buf := bytes.NewBuffer(content)
 	// 读取文件头
 	var header FileHeader
-	if err := binary.Read(buf, binary.LittleEndian, &header); err != nil {
+	if err = binary.Read(buf, binary.LittleEndian, &header); err != nil {
 		return nil, fmt.Errorf("failed to read header: %v", err)
 	}
 
@@ -48,74 +92,80 @@ func Load(filename string) (*NavigationData, error) {
 
 	navData := &NavigationData{}
 
-	if err := binary.Read(buf, binary.LittleEndian, &navData.Bounds); err != nil {
+	if err = binary.Read(buf, binary.LittleEndian, &navData.Bounds); err != nil {
 		return nil, fmt.Errorf("failed to read bounds: %v", err)
 	}
 
-	if err := binary.Read(buf, binary.LittleEndian, &navData.MaxDepth); err != nil {
+	if err = binary.Read(buf, binary.LittleEndian, &navData.MaxDepth); err != nil {
 		return nil, fmt.Errorf("failed to read max depth: %v", err)
 	}
 
-	if err := binary.Read(buf, binary.LittleEndian, &navData.MinSize); err != nil {
+	if err = binary.Read(buf, binary.LittleEndian, &navData.MinSize); err != nil {
 		return nil, fmt.Errorf("failed to read min size: %v", err)
 	}
 
-	if err := binary.Read(buf, binary.LittleEndian, &navData.StepSize); err != nil {
+	if err = binary.Read(buf, binary.LittleEndian, &navData.StepSize); err != nil {
 		return nil, fmt.Errorf("failed to read step size: %v", err)
 	}
 
 	var nodeCount uint32
-	if err := binary.Read(buf, binary.LittleEndian, &nodeCount); err != nil {
+	if err = binary.Read(buf, binary.LittleEndian, &nodeCount); err != nil {
 		return nil, fmt.Errorf("failed to read node count: %v", err)
 	}
 
 	navData.Nodes = make([]CompactNode, nodeCount)
 
 	for i := range navData.Nodes {
-		if err := binary.Read(buf, binary.LittleEndian, &navData.Nodes[i]); err != nil {
+		if err = binary.Read(buf, binary.LittleEndian, &navData.Nodes[i]); err != nil {
 			return nil, fmt.Errorf("failed to read node: %v", err)
 		}
 	}
 
 	var edgeCount uint32
-	if err := binary.Read(buf, binary.LittleEndian, &edgeCount); err != nil {
+	if err = binary.Read(buf, binary.LittleEndian, &edgeCount); err != nil {
 		return nil, fmt.Errorf("failed to read edge count: %v", err)
 	}
 
 	navData.Edges = make([]CompactEdge, edgeCount)
 
 	for i := range navData.Edges {
-		if err := binary.Read(buf, binary.LittleEndian, &navData.Edges[i]); err != nil {
+		if err = binary.Read(buf, binary.LittleEndian, &navData.Edges[i]); err != nil {
 			return nil, fmt.Errorf("failed to read edge: %v", err)
 		}
 	}
 
 	var mortonIndexCount uint32
-	if err := binary.Read(buf, binary.LittleEndian, &mortonIndexCount); err != nil {
+	if err = binary.Read(buf, binary.LittleEndian, &mortonIndexCount); err != nil {
 		return nil, fmt.Errorf("failed to read morton index count: %v", err)
 	}
 
 	navData.MortonIndex = make([]int32, mortonIndexCount)
 
 	for i := range navData.MortonIndex {
-		if err := binary.Read(buf, binary.LittleEndian, &navData.MortonIndex[i]); err != nil {
+		if err = binary.Read(buf, binary.LittleEndian, &navData.MortonIndex[i]); err != nil {
 			return nil, fmt.Errorf("failed to read morton index: %v", err)
 		}
 	}
 
-	if err := binary.Read(buf, binary.LittleEndian, &navData.MortonResolution); err != nil {
+	if err = binary.Read(buf, binary.LittleEndian, &navData.MortonResolution); err != nil {
 		return nil, fmt.Errorf("failed to read morton resolution: %v", err)
 	}
 
-	var geometryDataSize uint32
-	if err := binary.Read(buf, binary.LittleEndian, &geometryDataSize); err != nil {
+	var geometryCount uint32
+	if err = binary.Read(buf, binary.LittleEndian, &geometryCount); err != nil {
 		return nil, fmt.Errorf("failed to read geometry data size: %v", err)
 	}
 
-	navData.GeometryData = make([]byte, geometryDataSize)
+	navData.GeometryData = make([]geometry.Triangle, geometryCount)
+	for i := range navData.GeometryData {
+		if err = binary.Read(buf, binary.LittleEndian, &navData.GeometryData[i]); err != nil {
+			return nil, fmt.Errorf("failed to read geometry data: %v", err)
+		}
+	}
 
-	if err := binary.Read(buf, binary.LittleEndian, navData.GeometryData); err != nil {
-		return nil, fmt.Errorf("failed to read geometry data: %v", err)
+	err = navData.init()
+	if err != nil {
+		return nil, fmt.Errorf("failed to init navigation data: %v", err)
 	}
 
 	return navData, nil
@@ -205,8 +255,10 @@ func Save(navData *NavigationData, filename string) error {
 	}
 
 	// write geometry data
-	if err := binary.Write(buf, binary.LittleEndian, navData.GeometryData); err != nil {
-		return fmt.Errorf("failed to write geometry data: %v", err)
+	for _, triangle := range navData.GeometryData {
+		if err := binary.Write(buf, binary.LittleEndian, triangle); err != nil {
+			return fmt.Errorf("failed to write geometry data: %v", err)
+		}
 	}
 
 	content := buf.Bytes()
@@ -267,68 +319,6 @@ func BuildAndSave(bounds geometry.AABB, maxDepth uint8, minSize float32, stepSiz
 	}
 
 	return nil
-}
-
-// GetFileInfo 获取导航文件信息
-func GetFileInfo(filename string) (*NavigationFileInfo, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %v", err)
-	}
-	defer file.Close()
-
-	// 获取文件大小
-	fileInfo, err := file.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get file info: %v", err)
-	}
-
-	// 读取文件头
-	var header FileHeader
-	if err := binary.Read(file, binary.LittleEndian, &header); err != nil {
-		return nil, fmt.Errorf("failed to read header: %v", err)
-	}
-
-	// 验证文件格式
-	if header.Magic != NAVIGATION_FILE_MAGIC {
-		return nil, fmt.Errorf("invalid file format")
-	}
-
-	// 读取导航数据（只读取基本信息）
-	decoder := gob.NewDecoder(file)
-	var navData NavigationData
-	if err := decoder.Decode(&navData); err != nil {
-		return nil, fmt.Errorf("failed to decode navigation data: %v", err)
-	}
-
-	return &NavigationFileInfo{
-		Filename:  filename,
-		FileSize:  fileInfo.Size(),
-		Version:   header.Version,
-		Bounds:    navData.Bounds,
-		MaxDepth:  navData.MaxDepth,
-		MinSize:   navData.MinSize,
-		StepSize:  navData.StepSize,
-		NodeCount: len(navData.Nodes),
-		EdgeCount: len(navData.Edges),
-		DataSize:  navData.GetDataSize(),
-		ModTime:   fileInfo.ModTime(),
-	}, nil
-}
-
-// NavigationFileInfo 导航文件信息
-type NavigationFileInfo struct {
-	Filename  string        `json:"filename"`
-	FileSize  int64         `json:"file_size"`
-	Version   uint32        `json:"version"`
-	Bounds    geometry.AABB `json:"bounds"`
-	MaxDepth  uint8         `json:"max_depth"`
-	MinSize   float32       `json:"min_size"`
-	StepSize  float32       `json:"step_size"`
-	NodeCount int           `json:"node_count"`
-	EdgeCount int           `json:"edge_count"`
-	DataSize  int           `json:"data_size"`
-	ModTime   time.Time     `json:"mod_time"`
 }
 
 // ValidateNavigationFile 验证导航文件的完整性

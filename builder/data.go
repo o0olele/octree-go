@@ -1,12 +1,11 @@
 package builder
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 
 	"github.com/o0olele/octree-go/geometry"
 	"github.com/o0olele/octree-go/math32"
+	"github.com/o0olele/octree-go/octree"
 )
 
 // 文件格式常量
@@ -52,12 +51,32 @@ type NavigationData struct {
 	MortonResolution uint32  `json:"morton_resolution"`
 
 	// 几何体数据（用于碰撞检测）
-	GeometryData []byte `json:"geometry_data"`
+	GeometryData []geometry.Triangle `json:"geometry_data"`
 
 	// 邻接表索引（运行时构建，不序列化）
-	adjacencyList map[int32][]int32       `json:"-"`
-	edgeIndex     map[int32][]CompactEdge `json:"-"`
-	initialized   bool                    `json:"-"`
+	adjacencyList map[int32][]int32            `json:"-"`
+	edgeIndex     map[int32][]CompactEdge      `json:"-"`
+	initialized   bool                         `json:"-"`
+	octree        *octree.Octree               `json:"-"`
+	spatialCache  *math32.Cache[uint64, int32] `json:"-"` // 空间查询优化 - 使用LRU缓存
+}
+
+func (nd *NavigationData) init() error {
+	// 预先构建索引以提高查询性能
+	nd.BuildIndexes()
+
+	// 构建八叉树
+	nd.octree = octree.NewOctree(nd.Bounds, nd.MaxDepth, nd.StepSize)
+	nd.octree.SetTriangles(nd.GeometryData)
+	nd.octree.Build()
+
+	// 初始化空间缓存
+	nd.spatialCache = math32.NewCache[uint64, int32](10000)
+	return nil
+}
+
+func (nd *NavigationData) GetOctree() *octree.Octree {
+	return nd.octree
 }
 
 // GetDataSize 计算导航数据的大小（字节）
@@ -94,6 +113,18 @@ func (nd *NavigationData) GetNodeCount() int {
 // GetEdgeCount 获取边数量
 func (nd *NavigationData) GetEdgeCount() int {
 	return len(nd.Edges)
+}
+
+func (nd *NavigationData) GetGeometryCount() int {
+	return len(nd.GeometryData)
+}
+
+func (nd *NavigationData) GetGeometryData() []geometry.Triangle {
+	return nd.GeometryData
+}
+
+func (nd *NavigationData) GetSpatialCacheCount() int {
+	return nd.spatialCache.Len()
 }
 
 // FindNodeByID 根据ID查找节点
@@ -160,42 +191,6 @@ func (nd *NavigationData) BuildIndexes() {
 	nd.initialized = true
 }
 
-// DeserializeGeometries 反序列化几何体数据
-func (nd *NavigationData) DeserializeGeometries() ([]geometry.Triangle, error) {
-	if len(nd.GeometryData) == 0 {
-		return []geometry.Triangle{}, nil
-	}
-
-	buf := bytes.NewBuffer(nd.GeometryData)
-
-	var triangleNum uint32
-	err := binary.Read(buf, binary.LittleEndian, &triangleNum)
-	if err != nil {
-		return nil, err
-	}
-
-	var geomData = make([]geometry.Triangle, triangleNum)
-	for i := 0; i < int(triangleNum); i++ {
-		var triangle geometry.Triangle
-		err := binary.Read(buf, binary.LittleEndian, &triangle.A)
-		if err != nil {
-			return nil, err
-		}
-		err = binary.Read(buf, binary.LittleEndian, &triangle.B)
-		if err != nil {
-			return nil, err
-		}
-		err = binary.Read(buf, binary.LittleEndian, &triangle.C)
-		if err != nil {
-			return nil, err
-		}
-
-		geomData[i] = triangle
-	}
-
-	return geomData, nil
-}
-
 // Validate 验证导航数据的完整性
 func (nd *NavigationData) Validate() error {
 	// 检查节点ID连续性
@@ -231,4 +226,40 @@ func (nd *NavigationData) Validate() error {
 	}
 
 	return nil
+}
+
+// isPathClear 检查两点之间的路径是否畅通
+func (nd *NavigationData) IsPathClear(agent *octree.Agent, start, end math32.Vector3) bool {
+	// 计算方向向量和距离
+	direction := end.Sub(start)
+	distance := direction.Length()
+
+	if distance < 0.001 { // 距离太近，认为是同一点
+		return true
+	}
+
+	// 标准化方向向量
+	direction = direction.Scale(1.0 / distance)
+
+	agentRadius := float32(0.4)
+	if agent != nil {
+		agentRadius = agent.Radius
+	}
+	// 使用适当的步长进行采样检查
+	stepSize := math32.Max(0.1, agentRadius*0.6)
+	steps := math32.CeilToInt(distance / stepSize)
+
+	// 沿着路径进行采样检测
+	for i := 0; i <= steps; i++ {
+		t := float32(i) / float32(steps)
+		samplePoint := start.Add(direction.Scale(distance * t))
+
+		// 如果有Agent半径，还需要检查Agent碰撞
+		occupied := nd.octree.IsAgentOccupied(agent, samplePoint)
+		if occupied {
+			return false
+		}
+	}
+
+	return true
 }
