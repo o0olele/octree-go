@@ -28,11 +28,12 @@ func (nq *NavigationQuery) SmoothPath(pathNodes []*octree.PathNode) []math32.Vec
 	smoothed := []math32.Vector3{pathNodes[0].Center}
 	current := 0
 
+	navData := nq.navData
 	for current < len(pathNodes)-1 {
 		// 尝试找到最远的可直达节点
 		farthest := current
 		for next := current + 1; next < len(pathNodes); next++ {
-			if nq.isPathClear(pathNodes[current].Center, pathNodes[next].Center) {
+			if navData.IsPathClear(nq.agent, pathNodes[current].Center, pathNodes[next].Center) {
 				farthest = next
 			}
 		}
@@ -67,11 +68,12 @@ func (nq *NavigationQuery) optimizePathWithLineOfSight(pathNodes []math32.Vector
 	smoothed := []math32.Vector3{pathNodes[0]}
 	current := 0
 
+	navData := nq.navData
 	for current < len(pathNodes)-1 {
 		// 尝试找到最远的可直达节点
 		farthest := current
 		for next := current + 1; next < len(pathNodes); next++ {
-			if nq.isPathClear(pathNodes[current], pathNodes[next]) {
+			if navData.IsPathClear(nq.agent, pathNodes[current], pathNodes[next]) {
 				farthest = next
 			}
 		}
@@ -87,46 +89,6 @@ func (nq *NavigationQuery) optimizePathWithLineOfSight(pathNodes []math32.Vector
 	}
 
 	return smoothed
-}
-
-// isPathClear 检查两点之间的路径是否畅通
-func (nq *NavigationQuery) isPathClear(start, end math32.Vector3) bool {
-	// 计算方向向量和距离
-	direction := end.Sub(start)
-	distance := direction.Length()
-
-	if distance < 0.001 { // 距离太近，认为是同一点
-		return true
-	}
-
-	// 标准化方向向量
-	direction = direction.Scale(1.0 / distance)
-
-	agentRadius := float32(0.4)
-	if nq.agent != nil {
-		agentRadius = nq.agent.Radius
-	}
-	// 使用适当的步长进行采样检查
-	stepSize := math32.Max(0.1, agentRadius*0.6)
-	steps := math32.CeilToInt(distance / stepSize)
-
-	// 沿着路径进行采样检测
-	for i := 0; i <= steps; i++ {
-		t := float32(i) / float32(steps)
-		samplePoint := start.Add(direction.Scale(distance * t))
-
-		// 如果有Agent半径，还需要检查Agent碰撞
-		occupied := nq.octree.IsAgentOccupied(nq.agent, samplePoint)
-		// if Log {
-		// 	fmt.Println(start, end, nq.agent, samplePoint, occupied)
-		// }
-		if occupied {
-			return false
-		}
-
-	}
-
-	return true
 }
 
 // convertToWorldPath 将节点路径转换为世界坐标路径，使用边界穿越点替代中心点
@@ -300,7 +262,7 @@ func (nq *NavigationQuery) douglasPeucker(points []math32.Vector3, epsilon float
 		}
 	}
 
-	if maxDist < epsilon && nq.isPathClear(start, end) {
+	if maxDist < epsilon && nq.navData.IsPathClear(nq.agent, start, end) {
 		return []math32.Vector3{start, end}
 	}
 

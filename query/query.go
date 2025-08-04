@@ -6,83 +6,45 @@ import (
 	"time"
 
 	"github.com/o0olele/octree-go/builder"
-	"github.com/o0olele/octree-go/geometry"
 	"github.com/o0olele/octree-go/math32"
 	"github.com/o0olele/octree-go/octree"
 )
 
 // NavigationQuery 导航查询器，类似于Detour，只负责运行时查询
 type NavigationQuery struct {
-	navData  *builder.NavigationData
-	agent    *octree.Agent
-	stepSize float32
-	octree   *octree.Octree
-
-	// 缓存的几何体数据（用于碰撞检测）
-	geometries []geometry.Triangle
-
-	// 空间查询优化 - 使用LRU缓存
-	spatialCache *math32.Cache[uint64, int32]
-
-	// 路径偏好配置
-	pathPreferences *PathPreferences
+	navData         *builder.NavigationData
+	agent           *octree.Agent
+	stepSize        float32
+	pathPreferences *PathPreferences // 路径偏好配置
 }
 
 // NewNavigationQuery 创建新的导航查询器
 func NewNavigationQuery(navData *builder.NavigationData) (*NavigationQuery, error) {
-	return NewNavigationQueryWithCacheSize(navData, 1000) // 默认缓存1000个条目
+	return NewNavigationQueryWithCacheSize(navData)
 }
 
 // NewNavigationQueryWithCacheSize 创建新的导航查询器，指定缓存大小
-func NewNavigationQueryWithCacheSize(navData *builder.NavigationData, cacheSize int) (*NavigationQuery, error) {
+func NewNavigationQueryWithCacheSize(navData *builder.NavigationData) (*NavigationQuery, error) {
 	if err := navData.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid navigation data: %v", err)
-	}
-
-	// 预先构建索引以提高查询性能
-	navData.BuildIndexes()
-
-	// 反序列化几何体数据
-	geometries, err := navData.DeserializeGeometries()
-	if err != nil {
-		return nil, fmt.Errorf("failed to deserialize geometries: %v", err)
 	}
 
 	nq := &NavigationQuery{
 		navData:         navData,
 		stepSize:        navData.StepSize,
-		geometries:      geometries,
-		spatialCache:    math32.NewCache[uint64, int32](cacheSize),
 		pathPreferences: DefaultPathPreferences(),
-	}
-
-	nq.octree = nq.BuildOctree()
-	if nq.octree == nil {
-		return nil, fmt.Errorf("failed to build octree")
 	}
 
 	return nq, nil
 }
 
 func (nq *NavigationQuery) GetOctree() *octree.Octree {
-	return nq.octree
-}
-
-func (nq *NavigationQuery) BuildOctree() *octree.Octree {
-
-	octree := octree.NewOctree(nq.navData.Bounds, nq.navData.MaxDepth, nq.navData.StepSize)
-	octree.SetTriangles(nq.geometries)
-	octree.Build()
-	return octree
+	return nq.navData.GetOctree()
 }
 
 // SetAgent 设置代理
 func (nq *NavigationQuery) SetAgent(agent *octree.Agent) {
 	nq.agent = agent
-}
-
-func (nq *NavigationQuery) SetOctree(octree *octree.Octree) {
-	nq.octree = octree
 }
 
 // GetAgent 获取代理
@@ -127,18 +89,7 @@ func (nq *NavigationQuery) FindPath(start, end math32.Vector3) []math32.Vector3 
 
 // findClosestNode 查找最近的节点
 func (nq *NavigationQuery) findClosestNode(pos math32.Vector3) int32 {
-	// 检查缓存
-	if nodeID, exists := nq.spatialCache.Get(pos.Hash()); exists {
-		return nodeID
-	}
-
-	// 使用Morton索引进行空间查询
-	nodeID := nq.findClosestNodeMorton(pos)
-
-	// 缓存结果
-	nq.spatialCache.Put(pos.Hash(), nodeID)
-
-	return nodeID
+	return nq.navData.FindClosestNodeMorton(pos)
 }
 
 // astar A*寻路算法
@@ -294,28 +245,13 @@ func (nq *NavigationQuery) GetNavData() *builder.NavigationData {
 	return nq.navData
 }
 
-// ClearCache 清除空间缓存
-func (nq *NavigationQuery) ClearCache() {
-	nq.spatialCache.Clear()
-}
-
-// SetCacheSize 动态调整缓存大小
-func (nq *NavigationQuery) SetCacheSize(capacity int) {
-	nq.spatialCache = math32.NewCache[uint64, int32](capacity)
-}
-
-// GetCacheSize 获取当前缓存容量
-func (nq *NavigationQuery) GetCacheSize() int {
-	return nq.spatialCache.Len()
-}
-
 // GetStats 获取统计信息
 func (nq *NavigationQuery) GetStats() NavigationStats {
 	return NavigationStats{
 		NodeCount:     len(nq.navData.Nodes),
 		EdgeCount:     len(nq.navData.Edges),
-		GeometryCount: len(nq.geometries),
-		CacheSize:     nq.spatialCache.Len(),
+		GeometryCount: nq.navData.GetGeometryCount(),
+		CacheSize:     nq.navData.GetSpatialCacheCount(),
 		DataSize:      nq.navData.GetDataSize(),
 	}
 }
