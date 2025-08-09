@@ -403,40 +403,8 @@ func (nba *NodeBasedAStarPathfinder) isPathClearRelaxed(start, end math32.Vector
 	return true
 }
 
-// debugNodeAdjacency 调试两个节点的相邻性检测
-func (nba *NodeBasedAStarPathfinder) debugNodeAdjacency(nodeA, nodeB *OctreeNode) {
-	boundsA := nodeA.Bounds
-	boundsB := nodeB.Bounds
-	centerA := boundsA.Center()
-	centerB := boundsB.Center()
-	distance := centerA.Distance(centerB)
-
-	sizeA := boundsA.Size()
-	sizeB := boundsB.Size()
-	maxSizeA := math32.Max(math32.Max(sizeA.X, sizeA.Y), sizeA.Z)
-	maxSizeB := math32.Max(math32.Max(sizeB.X, sizeB.Y), sizeB.Z)
-
-	threshold := (maxSizeA + maxSizeB) * 0.8
-	boundsIntersect := boundsA.Intersects(boundsB)
-	minDistance := nba.calculateAABBDistance(boundsA, boundsB)
-	allowedGap := math32.Min(maxSizeA, maxSizeB) * 0.2
-	pathClear := nba.isPathClearRelaxed(centerA, centerB)
-
-	fmt.Printf("节点相邻性调试:\n")
-	fmt.Printf("  中心距离: %.3f, 阈值: %.3f, 通过: %v\n", distance, threshold, distance <= threshold)
-	fmt.Printf("  边界相交: %v\n", boundsIntersect)
-	if !boundsIntersect {
-		fmt.Printf("  最小距离: %.3f, 允许间隙: %.3f, 通过: %v\n", minDistance, allowedGap, minDistance <= allowedGap)
-	}
-	fmt.Printf("  路径畅通: %v\n", pathClear)
-	fmt.Printf("  最终结果: %v\n", nba.areNodesAdjacent(nodeA, nodeB))
-	fmt.Printf("  节点A中心: (%.2f, %.2f, %.2f), 大小: %.2f\n", centerA.X, centerA.Y, centerA.Z, maxSizeA)
-	fmt.Printf("  节点B中心: (%.2f, %.2f, %.2f), 大小: %.2f\n", centerB.X, centerB.Y, centerB.Z, maxSizeB)
-	fmt.Println()
-}
-
 // getNodeMarginPoints 获取节点边界的采样点
-func (nba *NodeBasedAStarPathfinder) getNodeMarginPoints(bounds geometry.AABB) []math32.Vector3 {
+func (nba *NodeBasedAStarPathfinder) GetNodeMarginPoints(bounds geometry.AABB) []math32.Vector3 {
 	center := bounds.Center()
 
 	// 在节点边界内生成采样点（避免边界上的点）
@@ -839,37 +807,6 @@ func (nba *NodeBasedAStarPathfinder) SmoothPath(pathNodes []*PathNode) []math32.
 	return smoothed
 }
 
-// optimizePathWithLineOfSight 使用视线优化算法简化路径
-func (nq *NodeBasedAStarPathfinder) optimizePathWithLineOfSight(pathNodes []math32.Vector3) []math32.Vector3 {
-	if len(pathNodes) <= 2 {
-		return pathNodes
-	}
-
-	smoothed := []math32.Vector3{pathNodes[0]}
-	current := 0
-
-	for current < len(pathNodes)-1 {
-		// 尝试找到最远的可直达节点
-		farthest := current
-		for next := current + 1; next < len(pathNodes); next++ {
-			if nq.isPathClear(pathNodes[current], pathNodes[next]) {
-				farthest = next
-			}
-		}
-
-		// 如果没有找到更远的节点，则只前进到下一个节点
-		if farthest == current {
-			farthest = current + 1
-		}
-
-		// 添加最远可达点
-		smoothed = append(smoothed, pathNodes[farthest])
-		current = farthest
-	}
-
-	return smoothed
-}
-
 // isPathClear 检查两点之间的路径是否畅通
 func (nba *NodeBasedAStarPathfinder) isPathClear(start, end math32.Vector3) bool {
 	// 计算方向向量和距离
@@ -981,7 +918,7 @@ func (nba *NodeBasedAStarPathfinder) validatePathSafety(path []math32.Vector3) [
 }
 
 // findSafeMidpoint 找到两点间的安全中间点
-func (nba *NodeBasedAStarPathfinder) findSafeMidpoint(start, end math32.Vector3) *math32.Vector3 {
+func (nba *NodeBasedAStarPathfinder) FindSafeMidpoint(start, end math32.Vector3) *math32.Vector3 {
 	// 简单的中点策略
 	mid := math32.Vector3{
 		X: (start.X + end.X) / 2,
@@ -1004,7 +941,7 @@ func (nba *NodeBasedAStarPathfinder) findSafeMidpoint(start, end math32.Vector3)
 }
 
 // hasObstacleBetween 检查两点间是否有障碍物
-func (nba *NodeBasedAStarPathfinder) hasObstacleBetween(start, end math32.Vector3) bool {
+func (nba *NodeBasedAStarPathfinder) HasObstacleBetween(start, end math32.Vector3) bool {
 	// 使用isPathClear的反向结果，保持一致性
 	return !nba.isPathClear(start, end)
 }
