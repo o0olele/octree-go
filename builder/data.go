@@ -54,11 +54,14 @@ type NavigationData struct {
 	GeometryData []geometry.Triangle `json:"geometry_data"`
 
 	// 邻接表索引（运行时构建，不序列化）
-	adjacencyList map[int32][]int32            `json:"-"`
-	edgeIndex     map[int32][]CompactEdge      `json:"-"`
-	initialized   bool                         `json:"-"`
-	octree        *octree.Octree               `json:"-"`
-	spatialCache  *math32.Cache[uint64, int32] `json:"-"` // 空间查询优化 - 使用LRU缓存
+	// 压缩邻接（CSR）：连续邻接数组 + 偏移 + 度
+	csrNeighbors []int32                      `json:"-"`
+	csrOffsets   []int32                      `json:"-"` // len = 节点数
+	csrDegrees   []int32                      `json:"-"` // len = 节点数
+	edgeIndex    map[int32][]CompactEdge      `json:"-"`
+	initialized  bool                         `json:"-"`
+	octree       *octree.Octree               `json:"-"`
+	spatialCache *math32.Cache[uint64, int32] `json:"-"` // 空间查询优化 - 使用LRU缓存
 }
 
 func (nd *NavigationData) init() error {
@@ -137,22 +140,28 @@ func (nd *NavigationData) FindNodeByID(id int) *CompactNode {
 
 // GetNodeEdges 获取节点的所有边
 func (nd *NavigationData) GetNodeEdges(nodeID int32) []CompactEdge {
-	// 确保邻接表和边索引已初始化
+	// 确保索引已初始化
 	if nd.edgeIndex == nil || !nd.initialized {
-		nd.GetNeighbors(nodeID) // 这会初始化邻接表和边索引
+		nd.BuildIndexes()
 	}
-
 	return nd.edgeIndex[nodeID]
 }
 
 // GetNeighbors 获取节点的邻居节点ID
 func (nd *NavigationData) GetNeighbors(nodeID int32) []int32 {
-	if nd.adjacencyList == nil || !nd.initialized {
-		// 懒加载邻接表和边索引
+	if nd.csrNeighbors == nil || nd.csrOffsets == nil || nd.csrDegrees == nil || !nd.initialized {
+		// 懒加载索引
 		nd.BuildIndexes()
 	}
-
-	return nd.adjacencyList[nodeID]
+	if nodeID < 0 || int(nodeID) >= len(nd.csrOffsets) {
+		return nil
+	}
+	off := nd.csrOffsets[nodeID]
+	deg := nd.csrDegrees[nodeID]
+	if deg == 0 {
+		return nil
+	}
+	return nd.csrNeighbors[off : off+deg]
 }
 
 // BuildIndexes 预先构建邻接表和边索引
@@ -161,33 +170,53 @@ func (nd *NavigationData) BuildIndexes() {
 		return
 	}
 
-	nd.adjacencyList = make(map[int32][]int32)
-	nd.edgeIndex = make(map[int32][]CompactEdge)
-
-	for _, edge := range nd.Edges {
-		// 构建邻接表
-		if _, exists := nd.adjacencyList[edge.NodeAID]; !exists {
-			nd.adjacencyList[edge.NodeAID] = make([]int32, 0)
+	n := len(nd.Nodes)
+	deg := make([]int32, n)
+	for _, e := range nd.Edges {
+		if e.NodeAID >= 0 && int(e.NodeAID) < n {
+			deg[e.NodeAID]++
 		}
-		nd.adjacencyList[edge.NodeAID] = append(nd.adjacencyList[edge.NodeAID], edge.NodeBID)
-
-		if _, exists := nd.adjacencyList[edge.NodeBID]; !exists {
-			nd.adjacencyList[edge.NodeBID] = make([]int32, 0)
+		if e.NodeBID >= 0 && int(e.NodeBID) < n {
+			deg[e.NodeBID]++
 		}
-		nd.adjacencyList[edge.NodeBID] = append(nd.adjacencyList[edge.NodeBID], edge.NodeAID)
-
-		// 构建边索引
-		if _, exists := nd.edgeIndex[edge.NodeAID]; !exists {
-			nd.edgeIndex[edge.NodeAID] = make([]CompactEdge, 0)
-		}
-		nd.edgeIndex[edge.NodeAID] = append(nd.edgeIndex[edge.NodeAID], edge)
-
-		if _, exists := nd.edgeIndex[edge.NodeBID]; !exists {
-			nd.edgeIndex[edge.NodeBID] = make([]CompactEdge, 0)
-		}
-		nd.edgeIndex[edge.NodeBID] = append(nd.edgeIndex[edge.NodeBID], edge)
 	}
 
+	offsets := make([]int32, n)
+	var total int32 = 0
+	for i := 0; i < n; i++ {
+		offsets[i] = total
+		total += deg[i]
+	}
+	neighbors := make([]int32, total)
+	// 临时写指针
+	cursor := make([]int32, n)
+	copy(cursor, offsets)
+
+	for _, e := range nd.Edges {
+		a := e.NodeAID
+		b := e.NodeBID
+		if a >= 0 && int(a) < n {
+			pos := cursor[a]
+			neighbors[pos] = b
+			cursor[a] = pos + 1
+		}
+		if b >= 0 && int(b) < n {
+			pos := cursor[b]
+			neighbors[pos] = a
+			cursor[b] = pos + 1
+		}
+	}
+
+	// 构建边索引（保持 map 以简化调用方）
+	nd.edgeIndex = make(map[int32][]CompactEdge)
+	for _, e := range nd.Edges {
+		nd.edgeIndex[e.NodeAID] = append(nd.edgeIndex[e.NodeAID], e)
+		nd.edgeIndex[e.NodeBID] = append(nd.edgeIndex[e.NodeBID], e)
+	}
+
+	nd.csrNeighbors = neighbors
+	nd.csrOffsets = offsets
+	nd.csrDegrees = deg
 	nd.initialized = true
 }
 
