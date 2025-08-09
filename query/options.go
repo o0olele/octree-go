@@ -21,7 +21,8 @@ func DefaultPathPreferences() *PathPreferences {
 		DensityBonus:         0.2,  // 高密度区域成本降低20%
 		BoundaryThreshold:    3.0,  // 边界阈值为stepSize的3倍
 		EnablePathPreference: true, // 默认启用路径偏好
-		UsingCrossPoint:      true,
+		UsingCrossPoint:      false,
+		UsingDouglasPeucker:  true,
 	}
 }
 
