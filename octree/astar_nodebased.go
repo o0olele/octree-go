@@ -99,7 +99,10 @@ func (nba *NodeBasedAStarPathfinder) collectEmptyLeaves(node *OctreeNode) []*Oct
 	if node.IsLeaf() {
 		// 检查叶子节点是否为空（没有被占用）
 		if !node.IsOccupied() {
-			emptyLeaves = append(emptyLeaves, node)
+			hit, _, _, _ := nba.octree.Raycast(node.Bounds.Center(), math32.Vector3{X: 0, Y: 1, Z: 0}, nba.agent.Height)
+			if !hit {
+				emptyLeaves = append(emptyLeaves, node)
+			}
 		}
 		return emptyLeaves
 	}
@@ -355,6 +358,10 @@ func (nba *NodeBasedAStarPathfinder) isPathClearRelaxed(start, end math32.Vector
 	// 标准化方向向量
 	direction = direction.Scale(1.0 / distance)
 
+	if hit, _, _, _ := nba.octree.Raycast(start, direction, distance); hit {
+		return false
+	}
+
 	// 使用较少的采样点，提高连通性
 	stepSize := math32.Min(nba.stepSize*0.5, 0.2) // 增加步长，减少采样密度
 	steps := math32.CeilToInt(distance / stepSize)
@@ -385,6 +392,9 @@ func (nba *NodeBasedAStarPathfinder) isPathClearRelaxed(start, end math32.Vector
 			// 	Height: nba.agent.Height, // 减小10%
 			// }
 			if nba.octree.IsAgentOccupied(nba.agent, samplePoint) {
+				return false
+			}
+			if hit, _, _, _ := nba.octree.Raycast(samplePoint, math32.Vector3{X: 0, Y: 1, Z: 0}, nba.agent.Height); hit {
 				return false
 			}
 		}

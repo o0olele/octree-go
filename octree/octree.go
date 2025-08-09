@@ -9,8 +9,9 @@ import (
 
 // Agent 表示寻路的智能体，用胶囊体表示
 type Agent struct {
-	Radius float32 `json:"radius"` // 胶囊体半径
-	Height float32 `json:"height"` // 胶囊体高度（不包括两端的半球）
+	Radius  float32           `json:"radius"` // 胶囊体半径
+	Height  float32           `json:"height"` // 胶囊体高度（不包括两端的半球）
+	Capsule *geometry.Capsule `json:"capsule"`
 }
 
 // NewAgent 创建新的Agent
@@ -23,6 +24,9 @@ func NewAgent(radius, height float32) *Agent {
 
 // GetCapsule 根据位置获取Agent的胶囊体表示
 func (a *Agent) GetCapsule(position math32.Vector3) *geometry.Capsule {
+	if a.Capsule != nil {
+		return a.Capsule
+	}
 	// 胶囊体的轴线沿Y轴方向
 	start := math32.Vector3{
 		X: position.X,
@@ -177,6 +181,17 @@ func (o *Octree) IsAgentOccupied(agent *Agent, position math32.Vector3) bool {
 	return o.isAgentOccupiedRecursive(o.Root, agentCapsule)
 }
 
+func (o *Octree) IsAgentOccupiedByNodeGeometry(agentCapsule *geometry.Capsule, node *OctreeNode) bool {
+	// 检查Agent胶囊体是否与节点中的几何体碰撞
+	for _, triangle := range node.Triangles {
+		if o.capsuleIntersectsTriangle(agentCapsule, triangle) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (o *Octree) isAgentOccupiedRecursive(node *OctreeNode, agentCapsule *geometry.Capsule) bool {
 	// 检查Agent的包围盒是否与节点相交
 	agentBounds := agentCapsule.GetBounds()
@@ -188,13 +203,7 @@ func (o *Octree) isAgentOccupiedRecursive(node *OctreeNode, agentCapsule *geomet
 		if !node.IsOccupied() {
 			return false
 		}
-		// 检查Agent胶囊体是否与节点中的几何体碰撞
-		for _, triangle := range node.Triangles {
-			if o.capsuleIntersectsTriangle(agentCapsule, triangle) {
-				return true
-			}
-		}
-		return false
+		return o.IsAgentOccupiedByNodeGeometry(agentCapsule, node)
 	}
 
 	// 递归检查子节点
@@ -405,4 +414,52 @@ func (o *Octree) nodeToExport(node *OctreeNode) *OctreeNodeExport {
 	}
 
 	return export
+}
+
+// Raycast 在八叉树中进行射线检测，返回是否命中、命中距离、命中点与命中三角形
+// direction 可为任意长度，内部会归一化；maxDistance 为最大检测距离（<=0 则视为无上限）
+func (o *Octree) Raycast(origin, direction math32.Vector3, maxDistance float32) (bool, float32, math32.Vector3, *geometry.Triangle) {
+	dirLen := direction.Length()
+	if dirLen <= 1e-6 {
+		return false, 0, origin, nil
+	}
+	dir := direction.Scale(1.0 / dirLen)
+	if maxDistance <= 0 {
+		maxDistance = math32.MaxFloat32
+	}
+
+	// 快速剔除：与根节点不相交直接失败
+	if _, _, ok := geometry.RayAABB(origin, dir, o.Root.Bounds); !ok {
+		return false, 0, origin, nil
+	}
+
+	bestT := maxDistance
+	var bestTri *geometry.Triangle
+	o.raycastNode(o.Root, origin, dir, maxDistance, &bestT, &bestTri)
+	if bestTri == nil {
+		return false, 0, origin, nil
+	}
+	hitPoint := origin.Add(dir.Scale(bestT))
+	return true, bestT, hitPoint, bestTri
+}
+
+func (o *Octree) raycastNode(node *OctreeNode, origin, dir math32.Vector3, maxT float32, bestT *float32, bestTri **geometry.Triangle) {
+	tmin, _, ok := geometry.RayAABB(origin, dir, node.Bounds)
+	if !ok || tmin > *bestT || tmin > maxT {
+		return
+	}
+	if node.IsLeaf() {
+		for _, tri := range node.Triangles {
+			if hit, t := geometry.RayTriangle(origin, dir, tri); hit && t < *bestT && t <= maxT {
+				*bestT = t
+				*bestTri = tri
+			}
+		}
+		return
+	}
+	for _, child := range node.Children {
+		if child != nil {
+			o.raycastNode(child, origin, dir, maxT, bestT, bestTri)
+		}
+	}
 }
