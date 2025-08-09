@@ -74,13 +74,20 @@ func (nq *NavigationQuery) FindPath(start, end math32.Vector3) []math32.Vector3 
 		return nil
 	}
 
+	// 2. 优先使用双向A*算法查找路径
 	startTime := time.Now()
-	// 2. 使用A*算法查找路径
-	nodePath := nq.astar(startNodeID, endNodeID)
-	if nodePath == nil {
-		return nil
+	nodePath := nq.astarBidirectional(startNodeID, endNodeID)
+	if nodePath != nil {
+		fmt.Printf("Bi-directional A* algorithm took %v\n", time.Since(startTime))
+	} else {
+		// 回退到单向A*
+		startTime = time.Now()
+		nodePath = nq.astar(startNodeID, endNodeID)
+		if nodePath == nil {
+			return nil
+		}
+		fmt.Printf("A* algorithm took %v\n", time.Since(startTime))
 	}
-	fmt.Printf("A* algorithm took %v\n", time.Since(startTime))
 
 	// 3. 转换为世界坐标路径
 	path := nq.convertToWorldPath(nodePath, start, end)
@@ -185,6 +192,220 @@ func (nq *NavigationQuery) astar(startNodeID, endNodeID int32) []int32 {
 	}
 
 	return nil // 没有找到路径
+}
+
+// astarBidirectional 双向A*寻路算法
+func (nq *NavigationQuery) astarBidirectional(startNodeID, endNodeID int32) []int32 {
+	if startNodeID == endNodeID {
+		return []int32{startNodeID}
+	}
+
+	// 前向与后向开放列表
+	forwardOpen := &nodeHeap{}
+	backwardOpen := &nodeHeap{}
+	heap.Init(forwardOpen)
+	heap.Init(backwardOpen)
+
+	// 关闭列表
+	forwardClosed := make(map[int32]bool)
+	backwardClosed := make(map[int32]bool)
+
+	// gScore 与来源映射
+	gForward := make(map[int32]float32)
+	gBackward := make(map[int32]float32)
+	cameFromForward := make(map[int32]int32)
+	cameFromBackward := make(map[int32]int32)
+
+	// 开放列表中的节点引用，便于 O(1) 更新
+	inForwardOpen := make(map[int32]*heapNode)
+	inBackwardOpen := make(map[int32]*heapNode)
+
+	// 起点与终点
+	startNode := &nq.navData.Nodes[startNodeID]
+	endNode := &nq.navData.Nodes[endNodeID]
+
+	// 初始化
+	gForward[startNodeID] = 0
+	gBackward[endNodeID] = 0
+	startF := nq.heuristic(startNode.Center, endNode.Center)
+	endF := nq.heuristic(endNode.Center, startNode.Center)
+
+	startHeapNode := &heapNode{nodeID: startNodeID, fScore: startF}
+	endHeapNode := &heapNode{nodeID: endNodeID, fScore: endF}
+	heap.Push(forwardOpen, startHeapNode)
+	inForwardOpen[startNodeID] = startHeapNode
+	heap.Push(backwardOpen, endHeapNode)
+	inBackwardOpen[endNodeID] = endHeapNode
+
+	maxIterations := 20000
+	iterations := 0
+
+	var meetingNode int32 = -1
+
+	for forwardOpen.Len() > 0 && backwardOpen.Len() > 0 && iterations < maxIterations {
+		iterations++
+
+		// 选择扩展方向：取当前两个堆顶 fScore 较小的一侧
+		expandForward := false
+		if backwardOpen.Len() == 0 {
+			expandForward = true
+		} else if forwardOpen.Len() == 0 {
+			expandForward = false
+		} else {
+			if (*forwardOpen)[0].fScore <= (*backwardOpen)[0].fScore {
+				expandForward = true
+			}
+		}
+
+		if expandForward {
+			current := heap.Pop(forwardOpen).(*heapNode)
+			currentID := current.nodeID
+			delete(inForwardOpen, currentID)
+
+			if backwardClosed[currentID] {
+				meetingNode = currentID
+				break
+			}
+
+			forwardClosed[currentID] = true
+
+			neighbors := nq.navData.GetNeighbors(currentID)
+			for _, neighborID := range neighbors {
+				if forwardClosed[neighborID] {
+					continue
+				}
+
+				tentativeG := gForward[currentID] + nq.calculateEnhancedMovementCost(currentID, neighborID)
+				if existingG, exists := gForward[neighborID]; !exists || tentativeG < existingG {
+					cameFromForward[neighborID] = currentID
+					gForward[neighborID] = tentativeG
+
+					neighborNode := &nq.navData.Nodes[neighborID]
+					f := tentativeG + nq.heuristic(neighborNode.Center, endNode.Center)
+
+					if existingHeapNode, exists := inForwardOpen[neighborID]; exists {
+						existingHeapNode.fScore = f
+						heap.Fix(forwardOpen, existingHeapNode.index)
+					} else {
+						newHeapNode := &heapNode{nodeID: neighborID, fScore: f}
+						heap.Push(forwardOpen, newHeapNode)
+						inForwardOpen[neighborID] = newHeapNode
+					}
+				}
+
+				if backwardClosed[neighborID] {
+					meetingNode = neighborID
+					break
+				}
+			}
+			if meetingNode != -1 {
+				break
+			}
+		} else {
+			current := heap.Pop(backwardOpen).(*heapNode)
+			currentID := current.nodeID
+			delete(inBackwardOpen, currentID)
+
+			if forwardClosed[currentID] {
+				meetingNode = currentID
+				break
+			}
+
+			backwardClosed[currentID] = true
+
+			neighbors := nq.navData.GetNeighbors(currentID)
+			for _, neighborID := range neighbors {
+				if backwardClosed[neighborID] {
+					continue
+				}
+
+				tentativeG := gBackward[currentID] + nq.calculateEnhancedMovementCost(currentID, neighborID)
+				if existingG, exists := gBackward[neighborID]; !exists || tentativeG < existingG {
+					cameFromBackward[neighborID] = currentID
+					gBackward[neighborID] = tentativeG
+
+					neighborNode := &nq.navData.Nodes[neighborID]
+					f := tentativeG + nq.heuristic(neighborNode.Center, startNode.Center)
+
+					if existingHeapNode, exists := inBackwardOpen[neighborID]; exists {
+						existingHeapNode.fScore = f
+						heap.Fix(backwardOpen, existingHeapNode.index)
+					} else {
+						newHeapNode := &heapNode{nodeID: neighborID, fScore: f}
+						heap.Push(backwardOpen, newHeapNode)
+						inBackwardOpen[neighborID] = newHeapNode
+					}
+				}
+
+				if forwardClosed[neighborID] {
+					meetingNode = neighborID
+					break
+				}
+			}
+			if meetingNode != -1 {
+				break
+			}
+		}
+	}
+
+	if meetingNode == -1 {
+		return nil
+	}
+
+	// 重构路径：start -> meetingNode
+	forwardPath := make([]int32, 0)
+	{
+		node := meetingNode
+		for {
+			forwardPath = append([]int32{node}, forwardPath...)
+			if node == startNodeID {
+				break
+			}
+			parent, ok := cameFromForward[node]
+			if !ok {
+				// 如果前向没有记录，可能 meetingNode 就是 startNodeID 或由后向抵达
+				break
+			}
+			node = parent
+		}
+	}
+
+	// meetingNode -> end（使用后向 cameFrom）
+	backwardPath := make([]int32, 0)
+	{
+		node := meetingNode
+		for node != endNodeID {
+			next, ok := cameFromBackward[node]
+			if !ok {
+				break
+			}
+			// 追加下一个到终点的方向
+			backwardPath = append(backwardPath, next)
+			node = next
+		}
+	}
+
+	// 合并，避免重复 meetingNode
+	combined := make([]int32, 0, len(forwardPath)+len(backwardPath))
+	combined = append(combined, forwardPath...)
+	if len(backwardPath) > 0 {
+		// backwardPath 已经从 meetingNode 后一个开始
+		combined = append(combined, backwardPath...)
+	}
+
+	// 最终校验首尾
+	if len(combined) == 0 {
+		return nil
+	}
+	if combined[0] != startNodeID {
+		// 若前半未包含 start，则补上
+		combined = append([]int32{startNodeID}, combined...)
+	}
+	if combined[len(combined)-1] != endNodeID {
+		combined = append(combined, endNodeID)
+	}
+
+	return combined
 }
 
 // heuristic 启发式函数
