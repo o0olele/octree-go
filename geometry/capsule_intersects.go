@@ -200,3 +200,62 @@ func CapsuleTriangleIntersect(capsule *Capsule, p0, p1, p2 math32.Vector3) (bool
 	// 8. 复用球体-三角形检测
 	return SphereTriangleIntersect(center, radius, p0, p1, p2)
 }
+
+// CapsuleIntersectsCapsule 胶囊体与胶囊体相交检测
+func CapsuleIntersectsCapsule(capsule1, capsule2 *Capsule) bool {
+	// 计算两个线段之间的最短距离
+	distance := lineSegmentDistance(capsule1.Start, capsule1.End, capsule2.Start, capsule2.End)
+	return distance < (capsule1.Radius + capsule2.Radius)
+}
+
+// PointProjectionInFace 检查点在面上的投影是否在面的边界内
+func PointProjectionInFace(point math32.Vector3, mesh ConvexMesh, face []int, normal math32.Vector3) bool {
+	if len(face) < 3 {
+		return false
+	}
+
+	// 将点投影到面上
+	v0 := mesh.Vertices[face[0]]
+	toPoint := point.Sub(v0)
+	distance := toPoint.Dot(normal)
+	projectedPoint := point.Sub(normal.Scale(distance))
+
+	// 使用重心坐标或者射线法检查投影点是否在多边形内
+	// 这里使用简化的方法：检查点是否在所有边的内侧
+	for i := 0; i < len(face); i++ {
+		v1 := mesh.Vertices[face[i]]
+		v2 := mesh.Vertices[face[(i+1)%len(face)]]
+
+		// 计算边向量和从边起点到投影点的向量
+		edge := v2.Sub(v1)
+		toProj := projectedPoint.Sub(v1)
+
+		// 计算叉积来判断点在边的哪一侧
+		crossProd := edge.Cross(toProj)
+		if crossProd.Dot(normal) < 0 {
+			return false // 点在边的外侧
+		}
+	}
+
+	return true
+}
+
+// lineSegmentDistance 计算两个线段之间的最短距离
+func lineSegmentDistance(seg1Start, seg1End, seg2Start, seg2End math32.Vector3) float32 {
+	// 简化实现，使用点到线段距离的近似
+	dist1 := math32.Min(
+		PointToLineSegmentDistance(seg1Start, seg2Start, seg2End),
+		PointToLineSegmentDistance(seg1End, seg2Start, seg2End),
+	)
+	dist2 := math32.Min(
+		PointToLineSegmentDistance(seg2Start, seg1Start, seg1End),
+		PointToLineSegmentDistance(seg2End, seg1Start, seg1End),
+	)
+	return math32.Min(dist1, dist2)
+}
+
+// ClosestPointOnLineSegmentToAABB 计算线段上最接近AABB的点
+func ClosestPointOnLineSegmentToAABB(lineStart, lineEnd math32.Vector3, aabb AABB) math32.Vector3 {
+	center := aabb.Center()
+	return closestPointOnLineSegment(center, lineStart, lineEnd)
+}

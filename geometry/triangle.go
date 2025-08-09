@@ -133,7 +133,7 @@ func (t *Triangle) ContainsPoint(point math32.Vector3) bool {
 }
 
 // isPointOnTrianglePlane 检查点是否在三角形所在的平面上（允许一定的误差）
-func (t *Triangle) isPointOnTrianglePlane(point math32.Vector3) bool {
+func (t *Triangle) IsPointOnTrianglePlane(point math32.Vector3) bool {
 	// 计算三角形的法向量
 	edge1 := t.B.Sub(t.A)
 	edge2 := t.C.Sub(t.A)
