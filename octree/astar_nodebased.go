@@ -303,7 +303,7 @@ func (nba *NodeBasedAStarPathfinder) areNodesAdjacent(nodeA, nodeB *OctreeNode) 
 	maxSizeB := math32.Max(math32.Max(sizeB.X, sizeB.Y), sizeB.Z)
 
 	// 放宽距离阈值检查 - 允许更多的相邻节点连接
-	threshold := (maxSizeA + maxSizeB) * 0.8 // 放宽阈值从0.6到0.8
+	threshold := (maxSizeA + maxSizeB) * 0.6 // 放宽阈值从0.6到0.8
 	if distance > threshold {
 		return false
 	}
@@ -379,12 +379,12 @@ func (nba *NodeBasedAStarPathfinder) isPathClearRelaxed(start, end math32.Vector
 
 		// 如果有Agent，还需要检查Agent碰撞，但使用稍微小一点的Agent
 		if nba.agent != nil {
-			// 创建一个稍微小一点的Agent进行检测，增加连通性
-			relaxedAgent := &Agent{
-				Radius: nba.agent.Radius * 0.9, // 减小10%
-				Height: nba.agent.Height * 0.9, // 减小10%
-			}
-			if nba.octree.IsAgentOccupied(relaxedAgent, samplePoint) {
+			// // 创建一个稍微小一点的Agent进行检测，增加连通性
+			// relaxedAgent := &Agent{
+			// 	Radius: nba.agent.Radius, // 减小10%
+			// 	Height: nba.agent.Height, // 减小10%
+			// }
+			if nba.octree.IsAgentOccupied(nba.agent, samplePoint) {
 				return false
 			}
 		}
