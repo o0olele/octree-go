@@ -82,6 +82,7 @@ func buildOctreeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	navigationBuilder.SetUseVoxel(true)
 	// 构建导航数据
 	navData, err := navigationBuilder.Build(globalAgent)
 	if err != nil {
@@ -215,8 +216,13 @@ func checkOccupiedHandler(w http.ResponseWriter, r *http.Request) {
 		occupied = navigationBuilder.GetOctree().IsOccupied(point)
 	}
 
+	var gridOccupied bool
+	if navigationQuery != nil {
+		gridOccupied = navigationQuery.GetNavigationData().IsWorldOccupiedByVoxel(globalAgent, point)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]bool{"occupied": occupied})
+	json.NewEncoder(w).Encode(map[string]bool{"occupied": occupied, "grid_occupied": gridOccupied})
 }
 
 // 获取路径图数据
