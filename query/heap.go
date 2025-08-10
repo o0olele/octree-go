@@ -1,5 +1,7 @@
 package query
 
+import "sync"
+
 // 堆数据结构用于A*算法
 type heapNode struct {
 	nodeID int32
@@ -32,4 +34,29 @@ func (h *nodeHeap) Pop() interface{} {
 	item.index = -1
 	*h = old[0 : n-1]
 	return item
+}
+
+func (h *nodeHeap) Clear() {
+	for _, node := range *h {
+		heapNodePool.Put(node)
+	}
+	*h = (*h)[:0]
+}
+
+var heapNodePool = sync.Pool{
+	New: func() interface{} {
+		return &heapNode{
+			nodeID: 0,
+			fScore: 0,
+			index:  -1,
+		}
+	},
+}
+
+func newHeapNode(nodeID int32, fScore float32) *heapNode {
+	node := heapNodePool.Get().(*heapNode)
+	node.nodeID = nodeID
+	node.fScore = fScore
+	node.index = -1
+	return node
 }

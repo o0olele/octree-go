@@ -123,10 +123,7 @@ func (nq *NavigationQuery) astar(startNodeID, endNodeID int32) []int32 {
 	gScore[startNodeID] = 0
 	fScore[startNodeID] = nq.heuristic(startNode.Center, endNode.Center)
 
-	startHeapNode := &heapNode{
-		nodeID: startNodeID,
-		fScore: fScore[startNodeID],
-	}
+	startHeapNode := newHeapNode(startNodeID, fScore[startNodeID])
 	heap.Push(openSet, startHeapNode)
 	inOpenSet[startNodeID] = startHeapNode
 
@@ -180,10 +177,7 @@ func (nq *NavigationQuery) astar(startNodeID, endNodeID int32) []int32 {
 					heap.Fix(openSet, existingHeapNode.index)
 				} else {
 					// 添加新节点到开放列表
-					newHeapNode := &heapNode{
-						nodeID: neighborID,
-						fScore: fScore[neighborID],
-					}
+					newHeapNode := newHeapNode(neighborID, fScore[neighborID])
 					heap.Push(openSet, newHeapNode)
 					inOpenSet[neighborID] = newHeapNode
 				}
@@ -191,6 +185,7 @@ func (nq *NavigationQuery) astar(startNodeID, endNodeID int32) []int32 {
 		}
 	}
 
+	openSet.Clear()
 	return nil // 没有找到路径
 }
 
@@ -230,8 +225,8 @@ func (nq *NavigationQuery) astarBidirectional(startNodeID, endNodeID int32) []in
 	startF := nq.heuristic(startNode.Center, endNode.Center)
 	endF := nq.heuristic(endNode.Center, startNode.Center)
 
-	startHeapNode := &heapNode{nodeID: startNodeID, fScore: startF}
-	endHeapNode := &heapNode{nodeID: endNodeID, fScore: endF}
+	startHeapNode := newHeapNode(startNodeID, startF)
+	endHeapNode := newHeapNode(endNodeID, endF)
 	heap.Push(forwardOpen, startHeapNode)
 	inForwardOpen[startNodeID] = startHeapNode
 	heap.Push(backwardOpen, endHeapNode)
@@ -287,7 +282,7 @@ func (nq *NavigationQuery) astarBidirectional(startNodeID, endNodeID int32) []in
 						existingHeapNode.fScore = f
 						heap.Fix(forwardOpen, existingHeapNode.index)
 					} else {
-						newHeapNode := &heapNode{nodeID: neighborID, fScore: f}
+						newHeapNode := newHeapNode(neighborID, f)
 						heap.Push(forwardOpen, newHeapNode)
 						inForwardOpen[neighborID] = newHeapNode
 					}
@@ -331,7 +326,7 @@ func (nq *NavigationQuery) astarBidirectional(startNodeID, endNodeID int32) []in
 						existingHeapNode.fScore = f
 						heap.Fix(backwardOpen, existingHeapNode.index)
 					} else {
-						newHeapNode := &heapNode{nodeID: neighborID, fScore: f}
+						newHeapNode := newHeapNode(neighborID, f)
 						heap.Push(backwardOpen, newHeapNode)
 						inBackwardOpen[neighborID] = newHeapNode
 					}
@@ -348,6 +343,8 @@ func (nq *NavigationQuery) astarBidirectional(startNodeID, endNodeID int32) []in
 		}
 	}
 
+	forwardOpen.Clear()
+	backwardOpen.Clear()
 	if meetingNode == -1 {
 		return nil
 	}
