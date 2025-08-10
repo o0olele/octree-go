@@ -55,10 +55,16 @@ type NavigationData struct {
 
 	// 邻接表索引（运行时构建，不序列化）
 	// 压缩邻接（CSR）：连续邻接数组 + 偏移 + 度
-	csrNeighbors []int32                      `json:"-"`
-	csrOffsets   []int32                      `json:"-"` // len = 节点数
-	csrDegrees   []int32                      `json:"-"` // len = 节点数
-	edgeIndex    map[int32][]CompactEdge      `json:"-"`
+	csrNeighbors []int32                 `json:"-"`
+	csrOffsets   []int32                 `json:"-"` // len = 节点数
+	csrDegrees   []int32                 `json:"-"` // len = 节点数
+	edgeIndex    map[int32][]CompactEdge `json:"-"`
+
+	// 预计算缓存（运行时，不序列化）
+	nodeNeighborCounts    []int32        `json:"-"`
+	nodeBoundaryDistances []float32      `json:"-"`
+	edgePairToIndex       map[uint64]int `json:"-"`
+
 	initialized  bool                         `json:"-"`
 	octree       *octree.Octree               `json:"-"`
 	spatialCache *math32.Cache[uint64, int32] `json:"-"` // 空间查询优化 - 使用LRU缓存
@@ -217,6 +223,33 @@ func (nd *NavigationData) BuildIndexes() {
 	nd.csrNeighbors = neighbors
 	nd.csrOffsets = offsets
 	nd.csrDegrees = deg
+
+	// 预计算：节点邻接度缓存
+	nd.nodeNeighborCounts = make([]int32, n)
+	copy(nd.nodeNeighborCounts, deg)
+
+	// 预计算：节点到场景边界的最小距离
+	nd.nodeBoundaryDistances = make([]float32, n)
+	for i := 0; i < n; i++ {
+		center := nd.Nodes[i].Bounds.Center()
+		dx := float32(math32.Min(center.X-nd.Bounds.Min.X, nd.Bounds.Max.X-center.X))
+		dy := float32(math32.Min(center.Y-nd.Bounds.Min.Y, nd.Bounds.Max.Y-center.Y))
+		dz := float32(math32.Min(center.Z-nd.Bounds.Min.Z, nd.Bounds.Max.Z-center.Z))
+		nd.nodeBoundaryDistances[i] = math32.Min(dx, math32.Min(dy, dz))
+	}
+
+	// 预计算：边对到索引的映射
+	nd.edgePairToIndex = make(map[uint64]int, len(nd.Edges))
+	for idx, e := range nd.Edges {
+		a := e.NodeAID
+		b := e.NodeBID
+		if a > b {
+			a, b = b, a
+		}
+		key := (uint64(uint32(a)) << 32) | uint64(uint32(b))
+		nd.edgePairToIndex[key] = idx
+	}
+
 	nd.initialized = true
 }
 
@@ -260,4 +293,51 @@ func (nd *NavigationData) Validate() error {
 // isPathClear 检查两点之间的路径是否畅通
 func (nd *NavigationData) IsPathClear(agent *octree.Agent, start, end math32.Vector3) bool {
 	return nd.octree.IsPathClear(agent, start, end)
+}
+
+// GetNodeNeighborCount 返回节点的邻居数量（缓存）
+func (nd *NavigationData) GetNodeNeighborCount(nodeID int32) int32 {
+	if nd.nodeNeighborCounts == nil || !nd.initialized {
+		nd.BuildIndexes()
+	}
+	if nodeID < 0 || int(nodeID) >= len(nd.nodeNeighborCounts) {
+		return 0
+	}
+	return nd.nodeNeighborCounts[nodeID]
+}
+
+// GetNodeBoundaryDistance 返回节点到边界的最小距离（缓存）
+func (nd *NavigationData) GetNodeBoundaryDistance(nodeID int32) float32 {
+	if nd.nodeBoundaryDistances == nil || !nd.initialized {
+		nd.BuildIndexes()
+	}
+	if nodeID < 0 || int(nodeID) >= len(nd.nodeBoundaryDistances) {
+		return 0
+	}
+	return nd.nodeBoundaryDistances[nodeID]
+}
+
+// FindEdgeIndex 返回边索引
+func (nd *NavigationData) FindEdgeIndex(nodeAID, nodeBID int32) int {
+	if nd.edgePairToIndex == nil || !nd.initialized {
+		nd.BuildIndexes()
+	}
+	a, b := nodeAID, nodeBID
+	if a > b {
+		a, b = b, a
+	}
+	key := (uint64(uint32(a)) << 32) | uint64(uint32(b))
+	if idx, ok := nd.edgePairToIndex[key]; ok {
+		return idx
+	}
+	return -1
+}
+
+// GetEdgeCostByNodes 通过节点ID获取边成本
+func (nd *NavigationData) GetEdgeCostByNodes(nodeAID, nodeBID int32) (float32, bool) {
+	idx := nd.FindEdgeIndex(nodeAID, nodeBID)
+	if idx < 0 {
+		return 0, false
+	}
+	return nd.Edges[idx].Cost, true
 }
