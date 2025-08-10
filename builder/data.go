@@ -37,10 +37,12 @@ type CompactEdge struct {
 // NavigationData 紧凑的导航数据结构，类似于Detour的数据格式
 type NavigationData struct {
 	// 基本信息
-	Bounds   geometry.AABB `json:"bounds"`
-	MaxDepth uint8         `json:"max_depth"`
-	MinSize  float32       `json:"min_size"`
-	StepSize float32       `json:"step_size"`
+	Bounds    geometry.AABB   `json:"bounds"`
+	MaxDepth  uint8           `json:"max_depth"`
+	MinSize   float32         `json:"min_size"`
+	StepSize  float32         `json:"step_size"`
+	GridSize  math32.Vector3i `json:"grid_size"`
+	VoxelSize float32         `json:"voxel_size"`
 
 	// 节点和边数据
 	Nodes []CompactNode `json:"nodes"`
@@ -52,6 +54,8 @@ type NavigationData struct {
 
 	// 几何体数据（用于碰撞检测）
 	GeometryData []geometry.Triangle `json:"geometry_data"`
+	// 体素数据 (用于碰撞检测)
+	VoxelData []uint64 `json:"voxel_data"`
 
 	// 邻接表索引（运行时构建，不序列化）
 	// 压缩邻接（CSR）：连续邻接数组 + 偏移 + 度
@@ -75,9 +79,11 @@ func (nd *NavigationData) init() error {
 	nd.BuildIndexes()
 
 	// 构建八叉树
-	nd.octree = octree.NewOctree(nd.Bounds, nd.MaxDepth, nd.StepSize)
-	nd.octree.SetTriangles(nd.GeometryData)
-	nd.octree.Build()
+	if len(nd.GeometryData) > 0 {
+		nd.octree = octree.NewOctree(nd.Bounds, nd.MaxDepth, nd.StepSize)
+		nd.octree.SetTriangles(nd.GeometryData)
+		nd.octree.Build()
+	}
 
 	// 初始化空间缓存
 	nd.spatialCache = math32.NewCache[uint64, int32](10000)
@@ -292,6 +298,9 @@ func (nd *NavigationData) Validate() error {
 
 // isPathClear 检查两点之间的路径是否畅通
 func (nd *NavigationData) IsPathClear(agent *octree.Agent, start, end math32.Vector3) bool {
+	if len(nd.VoxelData) > 0 {
+		return nd.IsPathClearByVoxel(agent, start, end)
+	}
 	return nd.octree.IsPathClear(agent, start, end)
 }
 
@@ -340,4 +349,54 @@ func (nd *NavigationData) GetEdgeCostByNodes(nodeAID, nodeBID int32) (float32, b
 		return 0, false
 	}
 	return nd.Edges[idx].Cost, true
+}
+
+func (nd *NavigationData) IsWorldOccupiedByVoxel(agent *octree.Agent, worldPos math32.Vector3) bool {
+	if len(nd.VoxelData) == 0 {
+		return false
+	}
+	localPos := worldPos.Sub(nd.Bounds.Min)
+	coord := math32.Vector3i{
+		X: int32(localPos.X / agent.Radius),
+		Y: int32(localPos.Y / agent.Radius),
+		Z: int32(localPos.Z / agent.Radius),
+	}
+	bitmap := math32.Bitmap(nd.VoxelData)
+	return bitmap.Contains(uint32(coord.Z*nd.GridSize.X*nd.GridSize.Y + coord.Y*nd.GridSize.X + coord.X))
+}
+
+func (nd *NavigationData) IsPathClearByVoxel(agent *octree.Agent, start, end math32.Vector3) bool {
+	// 计算方向向量和距离
+	direction := end.Sub(start)
+	distance := direction.Length()
+
+	if distance < 0.001 { // 距离太近，认为是同一点
+		return true
+	}
+
+	// 标准化方向向量
+	direction = direction.Scale(1.0 / distance)
+
+	agentRadius := float32(0.4)
+	if agent != nil {
+		agentRadius = agent.Radius
+	}
+	// 使用适当的步长进行采样检查
+	stepSize := math32.Max(0.1, agentRadius*0.6)
+	steps := math32.CeilToInt(distance / stepSize)
+
+	// 沿着路径进行采样检测
+	for i := 0; i <= steps; i++ {
+		t := float32(i) / float32(steps)
+		samplePoint := start.Add(direction.Scale(distance * t))
+
+		// 如果有Agent半径，还需要检查Agent碰撞
+		occupied := nd.IsWorldOccupiedByVoxel(agent, samplePoint)
+		if occupied {
+			return false
+		}
+
+	}
+
+	return true
 }

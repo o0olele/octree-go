@@ -2,6 +2,7 @@ package builder
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"sort"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/o0olele/octree-go/geometry"
 	"github.com/o0olele/octree-go/math32"
 	"github.com/o0olele/octree-go/octree"
+	"github.com/o0olele/octree-go/voxel"
 )
 
 // Builder 导航网格构建器，类似于Recast
@@ -16,11 +18,13 @@ type Builder struct {
 	octree      *octree.Octree
 	pathfinder  *octree.NodeBasedAStarPathfinder
 	bounds      geometry.AABB
+	voxelGrid   *voxel.VoxelGrid
 	maxDepth    uint8
 	minSize     float32
 	stepSize    float32
 	useParallel bool
 	usePrune    bool
+	useVoxel    bool
 }
 
 // NewBuilder 创建新的导航网格构建器
@@ -40,8 +44,16 @@ func (nb *Builder) SetUsePrune(usePrune bool) {
 	nb.usePrune = usePrune
 }
 
+func (nb *Builder) SetUseVoxel(useVoxel bool) {
+	nb.useVoxel = useVoxel
+}
+
 func (nb *Builder) GetOctree() *octree.Octree {
 	return nb.octree
+}
+
+func (nb *Builder) GetVoxelGrid() *voxel.VoxelGrid {
+	return nb.voxelGrid
 }
 
 func (nb *Builder) GetPathFinder() *octree.NodeBasedAStarPathfinder {
@@ -63,6 +75,14 @@ func (nb *Builder) SetParallel(parallel bool) {
 	nb.useParallel = parallel
 }
 
+func (nb *Builder) calculateVoxelSize(stepSize float32) math32.Vector3i {
+	return math32.Vector3i{
+		X: int32(math.Ceil(float64(nb.bounds.Size().X / stepSize))),
+		Y: int32(math.Ceil(float64(nb.bounds.Size().Y / stepSize))),
+		Z: int32(math.Ceil(float64(nb.bounds.Size().Z / stepSize))),
+	}
+}
+
 // Build 构建导航网格，返回可序列化的导航数据
 func (nb *Builder) Build(agent *octree.Agent) (*NavigationData, error) {
 	startTime := time.Now()
@@ -81,6 +101,11 @@ func (nb *Builder) Build(agent *octree.Agent) (*NavigationData, error) {
 	nb.pathfinder = octree.NewNodeBasedAStarPathfinderWithParallel(nb.octree, agent, nb.stepSize, nb.useParallel)
 	pathfinderTime := time.Since(pathfinderStart)
 	fmt.Printf("Pathfinder built in %v\n", pathfinderTime)
+
+	if nb.useVoxel && agent != nil {
+		nb.voxelGrid = voxel.NewVoxelGrid(nb.calculateVoxelSize(agent.Radius), agent.Radius, nb.bounds.Min)
+		nb.voxelGrid.VoxelizeWithPadding(nb.octree.GetTriangles(), agent.Radius, agent.Height)
+	}
 
 	// 3. 创建导航数据
 	navData := nb.createNavigationData()
@@ -175,7 +200,7 @@ func (nb *Builder) createNavigationData() *NavigationData {
 		mortonIndex[i] = pair.Node.ID
 	}
 
-	return &NavigationData{
+	data := &NavigationData{
 		Bounds:           nb.bounds,
 		MaxDepth:         nb.maxDepth,
 		MinSize:          nb.minSize,
@@ -188,6 +213,18 @@ func (nb *Builder) createNavigationData() *NavigationData {
 		spatialCache:     math32.NewCache[uint64, int32](10000),
 		octree:           nb.octree,
 	}
+
+	if nb.useVoxel {
+		// 使用体素数据作为碰撞检测
+		data.VoxelData = nb.voxelGrid.ToBitmap()
+		data.GridSize = nb.voxelGrid.Size
+		data.VoxelSize = nb.voxelGrid.VoxelSize
+
+		// 释放几何体数据
+		data.GeometryData = nil
+	}
+
+	return data
 }
 
 // pruneRedundantEdges 对边进行去重与裁剪

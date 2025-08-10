@@ -108,6 +108,14 @@ func Load(filename string) (*NavigationData, error) {
 		return nil, fmt.Errorf("failed to read step size: %v", err)
 	}
 
+	if err = binary.Read(buf, binary.LittleEndian, &navData.GridSize); err != nil {
+		return nil, fmt.Errorf("failed to read grid size: %v", err)
+	}
+
+	if err = binary.Read(buf, binary.LittleEndian, &navData.VoxelSize); err != nil {
+		return nil, fmt.Errorf("failed to read voxel size: %v", err)
+	}
+
 	var nodeCount uint32
 	if err = binary.Read(buf, binary.LittleEndian, &nodeCount); err != nil {
 		return nil, fmt.Errorf("failed to read node count: %v", err)
@@ -163,6 +171,18 @@ func Load(filename string) (*NavigationData, error) {
 		}
 	}
 
+	var voxelDataCount uint32
+	if err = binary.Read(buf, binary.LittleEndian, &voxelDataCount); err != nil {
+		return nil, fmt.Errorf("failed to read voxel data size: %v", err)
+	}
+
+	navData.VoxelData = make([]uint64, voxelDataCount)
+	for i := range navData.VoxelData {
+		if err = binary.Read(buf, binary.LittleEndian, &navData.VoxelData[i]); err != nil {
+			return nil, fmt.Errorf("failed to read voxel data: %v", err)
+		}
+	}
+
 	err = navData.init()
 	if err != nil {
 		return nil, fmt.Errorf("failed to init navigation data: %v", err)
@@ -206,6 +226,16 @@ func Save(navData *NavigationData, filename string) error {
 	// write step size
 	if err := binary.Write(buf, binary.LittleEndian, navData.StepSize); err != nil {
 		return fmt.Errorf("failed to write step size: %v", err)
+	}
+
+	// write grid size
+	if err := binary.Write(buf, binary.LittleEndian, navData.GridSize); err != nil {
+		return fmt.Errorf("failed to write grid size: %v", err)
+	}
+
+	// write voxel size
+	if err := binary.Write(buf, binary.LittleEndian, navData.VoxelSize); err != nil {
+		return fmt.Errorf("failed to write voxel size: %v", err)
 	}
 
 	// write node count
@@ -258,6 +288,18 @@ func Save(navData *NavigationData, filename string) error {
 	for _, triangle := range navData.GeometryData {
 		if err := binary.Write(buf, binary.LittleEndian, triangle); err != nil {
 			return fmt.Errorf("failed to write geometry data: %v", err)
+		}
+	}
+
+	// write voxel data size
+	if err := binary.Write(buf, binary.LittleEndian, uint32(len(navData.VoxelData))); err != nil {
+		return fmt.Errorf("failed to write voxel data size: %v", err)
+	}
+
+	// write voxel data
+	for _, voxel := range navData.VoxelData {
+		if err := binary.Write(buf, binary.LittleEndian, voxel); err != nil {
+			return fmt.Errorf("failed to write voxel data: %v", err)
 		}
 	}
 
