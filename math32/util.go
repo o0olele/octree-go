@@ -2,14 +2,14 @@ package math32
 
 import "math"
 
-func Min(a, b float32) float32 {
+func Min[T float32 | int32](a, b T) T {
 	if a < b {
 		return a
 	}
 	return b
 }
 
-func Max(a, b float32) float32 {
+func Max[T float32 | int32](a, b T) T {
 	if a > b {
 		return a
 	}

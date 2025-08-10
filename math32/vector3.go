@@ -38,6 +38,10 @@ func (v Vector3) DistanceSquared(other Vector3) float32 {
 	return diff.X*diff.X + diff.Y*diff.Y + diff.Z*diff.Z
 }
 
+func (v Vector3) LengthSquared() float32 {
+	return v.X*v.X + v.Y*v.Y + v.Z*v.Z
+}
+
 func (v Vector3) Length() float32 {
 	return float32(math.Sqrt(float64(v.X*v.X + v.Y*v.Y + v.Z*v.Z)))
 }
