@@ -64,6 +64,10 @@ func (nq *NavigationQuery) GetStepSize() float32 {
 	return nq.stepSize
 }
 
+func (nq *NavigationQuery) GetNavigationData() *builder.NavigationData {
+	return nq.navData
+}
+
 // FindPath 查找路径
 func (nq *NavigationQuery) FindPath(start, end math32.Vector3) []math32.Vector3 {
 	// 1. 找到起点和终点最近的节点

@@ -14,7 +14,7 @@ func (nq *NavigationQuery) SmoothPath(pathNodes []*octree.PathNode) []math32.Vec
 	if nq.pathPreferences.UsingCrossPoint {
 		return nq.optimizePathWithLineOfSight(nq.getCrossingPath(pathNodes))
 	} else if nq.pathPreferences.UsingDouglasPeucker {
-		return nq.optimizePathWithLineOfSight(nq.douglasPeucker(nq.getCenterPath(pathNodes), 0.1))
+		return nq.optimizePathWithLineOfSight(nq.douglasPeucker(nq.getCenterPath(pathNodes), 0.2))
 	}
 
 	if len(pathNodes) <= 2 {
@@ -30,20 +30,20 @@ func (nq *NavigationQuery) SmoothPath(pathNodes []*octree.PathNode) []math32.Vec
 
 	navData := nq.navData
 	for current < len(pathNodes)-1 {
-		// 尝试找到最远的可直达节点
-		farthest := current
-		for next := current + 1; next < len(pathNodes); next++ {
-			if navData.IsPathClear(nq.agent, pathNodes[current].Center, pathNodes[next].Center) {
-				farthest = next
+		// 使用二分搜索找到最远可视节点，减少检测次数
+		low := current + 1
+		high := len(pathNodes) - 1
+		farthest := current + 1
+		for low <= high {
+			mid := (low + high) / 2
+			if navData.IsPathClear(nq.agent, pathNodes[current].Center, pathNodes[mid].Center) {
+				farthest = mid
+				low = mid + 1
+			} else {
+				high = mid - 1
 			}
 		}
 
-		// 如果没有找到更远的节点，则只前进到下一个节点
-		if farthest == current {
-			farthest = current + 1
-		}
-
-		// 添加最远可达点
 		smoothed = append(smoothed, pathNodes[farthest].Center)
 		current = farthest
 	}
@@ -70,20 +70,20 @@ func (nq *NavigationQuery) optimizePathWithLineOfSight(pathNodes []math32.Vector
 
 	navData := nq.navData
 	for current < len(pathNodes)-1 {
-		// 尝试找到最远的可直达节点
-		farthest := current
-		for next := current + 1; next < len(pathNodes); next++ {
-			if navData.IsPathClear(nq.agent, pathNodes[current], pathNodes[next]) {
-				farthest = next
+		// 二分搜索最远可直达点，降低调用次数
+		low := current + 1
+		high := len(pathNodes) - 1
+		farthest := current + 1
+		for low <= high {
+			mid := (low + high) / 2
+			if navData.IsPathClear(nq.agent, pathNodes[current], pathNodes[mid]) {
+				farthest = mid
+				low = mid + 1
+			} else {
+				high = mid - 1
 			}
 		}
 
-		// 如果没有找到更远的节点，则只前进到下一个节点
-		if farthest == current {
-			farthest = current + 1
-		}
-
-		// 添加最远可达点
 		smoothed = append(smoothed, pathNodes[farthest])
 		current = farthest
 	}
