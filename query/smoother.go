@@ -243,33 +243,59 @@ func clamp(value, min, max float32) float32 {
 }
 
 func (nq *NavigationQuery) douglasPeucker(points []math32.Vector3, epsilon float32) []math32.Vector3 {
-	if len(points) <= 2 {
-		// 点数 ≤2，无法再简化
+	n := len(points)
+	if n <= 2 {
 		return points
 	}
 
-	// 找到距离首尾连线最远的点
-	var maxDist float32 = 0.0
-	index := 0
-	start := points[0]
-	end := points[len(points)-1]
+	// 迭代版本，避免深度递归导致的栈溢出
+	keep := make([]bool, n)
+	keep[0] = true
+	keep[n-1] = true
 
-	for i := 1; i < len(points)-1; i++ {
-		dist := geometry.PointToLineSegmentDistance(points[i], start, end)
-		if dist > maxDist {
-			maxDist = dist
-			index = i
+	type segment struct{ start, end int }
+	stack := []segment{{0, n - 1}}
+
+	for len(stack) > 0 {
+		seg := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		s := seg.start
+		e := seg.end
+		if e <= s+1 {
+			continue
+		}
+
+		// 找到距离首尾连线最远的点
+		var maxDist float32
+		maxIdx := -1
+		for i := s + 1; i < e; i++ {
+			dist := geometry.PointToLineSegmentDistance(points[i], points[s], points[e])
+			if dist > maxDist {
+				maxDist = dist
+				maxIdx = i
+			}
+		}
+
+		// 折线简化判定：距离阈值 + 视线可达
+		if maxDist < epsilon && nq.navData.IsPathClear(nq.agent, points[s], points[e]) {
+			// 保留端点，丢弃中间点
+			continue
+		}
+
+		if maxIdx != -1 {
+			keep[maxIdx] = true
+			// 分裂为两段，入栈继续处理
+			stack = append(stack, segment{s, maxIdx}, segment{maxIdx, e})
 		}
 	}
 
-	if maxDist < epsilon && nq.navData.IsPathClear(nq.agent, start, end) {
-		return []math32.Vector3{start, end}
+	// 输出保留的点（保持顺序）
+	result := make([]math32.Vector3, 0, n)
+	for i := 0; i < n; i++ {
+		if keep[i] {
+			result = append(result, points[i])
+		}
 	}
-
-	// 递归处理两段：[0...index] 和 [index...end]
-	left := nq.douglasPeucker(points[:index+1], epsilon)
-	right := nq.douglasPeucker(points[index:], epsilon)
-
-	// 合并结果，避免重复添加中间点
-	return append(left[:len(left)-1], right...)
+	return result
 }
