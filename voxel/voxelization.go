@@ -151,8 +151,8 @@ func (g *VoxelGrid) VoxelizeWithPadding(triangles []geometry.Triangle, agentRadi
 	g.VoxelizeTriangles(triangles)
 
 	// Calculate padding in voxels
-	paddingRadiusVoxels := int32(math.Ceil(float64(agentRadius / g.VoxelSize)))
-	paddingHeightVoxels := int32(math.Ceil(float64(agentHeight / g.VoxelSize)))
+	paddingRadiusVoxels := int32(math.Ceil(float64(agentRadius * 0.9 / g.VoxelSize)))
+	paddingHeightVoxels := int32(math.Ceil(float64(agentHeight * 0.9 / g.VoxelSize)))
 
 	// Create a copy of the current grid to avoid modifying while iterating
 	originalVoxels := make([]Voxel, len(g.Voxels))
@@ -176,13 +176,13 @@ func (g *VoxelGrid) VoxelizeWithPadding(triangles []geometry.Triangle, agentRadi
 // addPaddingAroundVoxel adds padding around a solid voxel
 func (g *VoxelGrid) addPaddingAroundVoxel(center math32.Vector3i, paddingRadiusVoxels, paddingHeightVoxels int32) {
 	// Use a sphere-like pattern for padding
-	for dz := -paddingHeightVoxels; dz <= 0; dz++ {
-		for dy := -paddingRadiusVoxels; dy <= paddingRadiusVoxels; dy++ {
+	for dz := -paddingHeightVoxels; dz <= paddingHeightVoxels; dz++ {
+		for dy := -paddingHeightVoxels; dy <= 0; dy++ {
 			for dx := -paddingRadiusVoxels; dx <= paddingRadiusVoxels; dx++ {
 				// Check if within padding radius
-				distanceXZ := math32.Sqrt(float32(dx*dx + dy*dy))
+				distanceXZ := math32.Sqrt(float32(dx*dx + dz*dz))
 				if distanceXZ <= float32(paddingRadiusVoxels) {
-					if math32.Abs(float32(dz)) <= float32(paddingHeightVoxels) {
+					if math32.Abs(float32(dy)) <= float32(paddingHeightVoxels) {
 						paddedCoord := center.Add(math32.Vector3i{X: int32(dx), Y: int32(dy), Z: int32(dz)})
 
 						if g.IsValidCoordinate(paddedCoord) {
