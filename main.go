@@ -218,7 +218,7 @@ func checkOccupiedHandler(w http.ResponseWriter, r *http.Request) {
 
 	var gridOccupied bool
 	if navigationQuery != nil {
-		gridOccupied = navigationQuery.GetNavigationData().IsWorldOccupiedByVoxel(globalAgent, point)
+		gridOccupied = navigationQuery.GetNavigationData().IsWorldOccupiedByVoxel(point)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
