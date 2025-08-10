@@ -103,7 +103,8 @@ func (nb *Builder) Build(agent *octree.Agent) (*NavigationData, error) {
 	fmt.Printf("Pathfinder built in %v\n", pathfinderTime)
 
 	if nb.useVoxel && agent != nil {
-		nb.voxelGrid = voxel.NewVoxelGrid(nb.calculateVoxelSize(agent.Radius), agent.Radius, nb.bounds.Min)
+		var voxelSize float32 = agent.Radius * 0.5
+		nb.voxelGrid = voxel.NewVoxelGrid(nb.calculateVoxelSize(voxelSize), voxelSize, nb.bounds.Min)
 		nb.voxelGrid.VoxelizeWithPadding(nb.octree.GetTriangles(), agent.Radius, agent.Height)
 	}
 

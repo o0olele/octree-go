@@ -351,15 +351,15 @@ func (nd *NavigationData) GetEdgeCostByNodes(nodeAID, nodeBID int32) (float32, b
 	return nd.Edges[idx].Cost, true
 }
 
-func (nd *NavigationData) IsWorldOccupiedByVoxel(agent *octree.Agent, worldPos math32.Vector3) bool {
+func (nd *NavigationData) IsWorldOccupiedByVoxel(worldPos math32.Vector3) bool {
 	if len(nd.VoxelData) == 0 {
 		return false
 	}
 	localPos := worldPos.Sub(nd.Bounds.Min)
 	coord := math32.Vector3i{
-		X: int32(localPos.X / agent.Radius),
-		Y: int32(localPos.Y / agent.Radius),
-		Z: int32(localPos.Z / agent.Radius),
+		X: int32(localPos.X / nd.VoxelSize),
+		Y: int32(localPos.Y / nd.VoxelSize),
+		Z: int32(localPos.Z / nd.VoxelSize),
 	}
 	bitmap := math32.Bitmap(nd.VoxelData)
 	return bitmap.Contains(uint32(coord.Z*nd.GridSize.X*nd.GridSize.Y + coord.Y*nd.GridSize.X + coord.X))
@@ -391,7 +391,7 @@ func (nd *NavigationData) IsPathClearByVoxel(agent *octree.Agent, start, end mat
 		samplePoint := start.Add(direction.Scale(distance * t))
 
 		// 如果有Agent半径，还需要检查Agent碰撞
-		occupied := nd.IsWorldOccupiedByVoxel(agent, samplePoint)
+		occupied := nd.IsWorldOccupiedByVoxel(samplePoint)
 		if occupied {
 			return false
 		}
