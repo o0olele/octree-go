@@ -43,7 +43,7 @@ func (nq *NavigationQuery) calculateEnhancedMovementCost(currentNodeID, neighbor
 		return baseCost
 	}
 
-	// 检查是否为边界节点（靠近场景边界的节点）
+	// 检查是否为边界节点（靠近场景边界的节点）- 使用预计算缓存
 	currentIsBoundary := nq.isNodeNearBoundary(currentNode)
 	neighborIsBoundary := nq.isNodeNearBoundary(neighborNode)
 
@@ -70,37 +70,27 @@ func (nq *NavigationQuery) calculateEnhancedMovementCost(currentNodeID, neighbor
 
 // isNodeNearBoundary 检查节点是否靠近场景边界
 func (nq *NavigationQuery) isNodeNearBoundary(node *builder.CompactNode) bool {
-	bounds := nq.navData.Bounds
-	boundaryThreshold := nq.stepSize * nq.pathPreferences.BoundaryThreshold // 使用配置的边界阈值
-
-	center := node.Center
-
-	// 检查是否靠近任何边界
-	return (center.X-bounds.Min.X) < boundaryThreshold ||
-		(bounds.Max.X-center.X) < boundaryThreshold ||
-		(center.Y-bounds.Min.Y) < boundaryThreshold ||
-		(bounds.Max.Y-center.Y) < boundaryThreshold ||
-		(center.Z-bounds.Min.Z) < boundaryThreshold ||
-		(bounds.Max.Z-center.Z) < boundaryThreshold
+	// 使用预计算的节点到边界最小距离判断
+	// 阈值仍然来自配置：BoundaryThreshold * stepSize
+	threshold := nq.stepSize * nq.pathPreferences.BoundaryThreshold
+	dist := nq.navData.GetNodeBoundaryDistance(node.ID)
+	return dist < threshold
 }
 
 // calculateNodeDensityFactor 计算节点密度因子
 func (nq *NavigationQuery) calculateNodeDensityFactor(currentNodeID, neighborNodeID int32) float32 {
-	// 计算当前节点周围的邻居数量
-	currentNeighbors := len(nq.navData.GetNeighbors(currentNodeID))
-	neighborNeighbors := len(nq.navData.GetNeighbors(neighborNodeID))
+	// 使用预计算的邻接度而非实时查询
+	currentNeighbors := nq.navData.GetNodeNeighborCount(currentNodeID)
+	neighborNeighbors := nq.navData.GetNodeNeighborCount(neighborNodeID)
 
-	// 平均邻居数量
 	avgNeighbors := float32(currentNeighbors+neighborNeighbors) / 2.0
 
-	// 高密度区域（邻居多）成本较低，低密度区域成本较高
 	if avgNeighbors > 6 {
-		return 1.0 - nq.pathPreferences.DensityBonus // 使用配置的密度奖励
+		return 1.0 - nq.pathPreferences.DensityBonus
 	} else if avgNeighbors > 4 {
-		return 1.0 - (nq.pathPreferences.DensityBonus * 0.5) // 使用一半的密度奖励
+		return 1.0 - (nq.pathPreferences.DensityBonus * 0.5)
 	} else if avgNeighbors < 3 {
-		return 1.0 + (nq.pathPreferences.DensityBonus * 1.5) // 低密度区域增加成本
+		return 1.0 + (nq.pathPreferences.DensityBonus * 1.5)
 	}
-
-	return 1.0 // 默认成本
+	return 1.0
 }
