@@ -71,8 +71,8 @@ func (nq *NavigationQuery) GetNavigationData() *builder.NavigationData {
 // FindPath 查找路径
 func (nq *NavigationQuery) FindPath(start, end math32.Vector3) []math32.Vector3 {
 	// 1. 找到起点和终点最近的节点
-	startNodeID := nq.findClosestNode(start)
-	endNodeID := nq.findClosestNode(end)
+	startNodeID := nq.FindClosestNode(start)
+	endNodeID := nq.FindClosestNode(end)
 
 	if startNodeID == -1 || endNodeID == -1 {
 		return nil
@@ -80,13 +80,13 @@ func (nq *NavigationQuery) FindPath(start, end math32.Vector3) []math32.Vector3 
 
 	// 2. 优先使用双向A*算法查找路径
 	startTime := time.Now()
-	nodePath := nq.astarBidirectional(startNodeID, endNodeID)
+	nodePath := nq.AstarBidirectional(startNodeID, endNodeID)
 	if nodePath != nil {
 		fmt.Printf("Bi-directional A* algorithm took %v\n", time.Since(startTime))
 	} else {
 		// 回退到单向A*
 		startTime = time.Now()
-		nodePath = nq.astar(startNodeID, endNodeID)
+		nodePath = nq.Astar(startNodeID, endNodeID)
 		if nodePath == nil {
 			return nil
 		}
@@ -99,13 +99,13 @@ func (nq *NavigationQuery) FindPath(start, end math32.Vector3) []math32.Vector3 
 	return path
 }
 
-// findClosestNode 查找最近的节点
-func (nq *NavigationQuery) findClosestNode(pos math32.Vector3) int32 {
+// FindClosestNode 查找最近的节点
+func (nq *NavigationQuery) FindClosestNode(pos math32.Vector3) int32 {
 	return nq.navData.FindClosestNodeMorton(pos)
 }
 
-// astar A*寻路算法
-func (nq *NavigationQuery) astar(startNodeID, endNodeID int32) []int32 {
+// Astar A*寻路算法
+func (nq *NavigationQuery) Astar(startNodeID, endNodeID int32) []int32 {
 	if startNodeID == endNodeID {
 		return []int32{startNodeID}
 	}
@@ -193,8 +193,8 @@ func (nq *NavigationQuery) astar(startNodeID, endNodeID int32) []int32 {
 	return nil // 没有找到路径
 }
 
-// astarBidirectional 双向A*寻路算法
-func (nq *NavigationQuery) astarBidirectional(startNodeID, endNodeID int32) []int32 {
+// AstarBidirectional 双向A*寻路算法
+func (nq *NavigationQuery) AstarBidirectional(startNodeID, endNodeID int32) []int32 {
 	if startNodeID == endNodeID {
 		return []int32{startNodeID}
 	}
