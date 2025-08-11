@@ -9,15 +9,29 @@ import (
 	"os"
 
 	"github.com/o0olele/octree-go/geometry"
+	"github.com/o0olele/octree-go/math32"
 )
 
+// useGzip is the flag to use gzip to compress the navigation data.
 var useGzip = true
 
+// UseGzip sets the flag to use gzip to compress the navigation data.
 func UseGzip(use bool) {
 	useGzip = use
 }
 
-func LoadBaseInfo(filename string) (*NavigationData, error) {
+// NavigationBaseInfo is the base information of the navigation data.
+type NavigationBaseInfo struct {
+	Bounds    geometry.AABB   `json:"bounds"`
+	MaxDepth  uint8           `json:"max_depth"`
+	MinSize   float32         `json:"min_size"`
+	StepSize  float32         `json:"step_size"`
+	GridSize  math32.Vector3i `json:"grid_size"`
+	VoxelSize float32         `json:"voxel_size"`
+}
+
+// LoadBaseInfo loads the base information of the navigation data.
+func LoadBaseInfo(filename string) (*NavigationBaseInfo, error) {
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %v", err)
@@ -28,13 +42,13 @@ func LoadBaseInfo(filename string) (*NavigationData, error) {
 	}
 
 	buf := bytes.NewBuffer(content)
-	// 读取文件头
+	// Read the file header
 	var header FileHeader
 	if err = binary.Read(buf, binary.LittleEndian, &header); err != nil {
 		return nil, fmt.Errorf("failed to read header: %v", err)
 	}
 
-	// 验证文件格式
+	// Verify the file format
 	if header.Magic != NAVIGATION_FILE_MAGIC {
 		return nil, fmt.Errorf("invalid file format: magic number mismatch")
 	}
@@ -43,7 +57,7 @@ func LoadBaseInfo(filename string) (*NavigationData, error) {
 		return nil, fmt.Errorf("unsupported file version: %d", header.Version)
 	}
 
-	navData := &NavigationData{}
+	navData := &NavigationBaseInfo{}
 
 	if err = binary.Read(buf, binary.LittleEndian, &navData.Bounds); err != nil {
 		return nil, fmt.Errorf("failed to read bounds: %v", err)
@@ -63,6 +77,7 @@ func LoadBaseInfo(filename string) (*NavigationData, error) {
 	return navData, nil
 }
 
+// Load loads the navigation data from the file.
 func Load(filename string) (*NavigationData, error) {
 
 	content, err := os.ReadFile(filename)
@@ -75,13 +90,13 @@ func Load(filename string) (*NavigationData, error) {
 	}
 
 	buf := bytes.NewBuffer(content)
-	// 读取文件头
+	// Read the file header
 	var header FileHeader
 	if err = binary.Read(buf, binary.LittleEndian, &header); err != nil {
 		return nil, fmt.Errorf("failed to read header: %v", err)
 	}
 
-	// 验证文件格式
+	// Verify the file format
 	if header.Magic != NAVIGATION_FILE_MAGIC {
 		return nil, fmt.Errorf("invalid file format: magic number mismatch")
 	}
@@ -191,14 +206,15 @@ func Load(filename string) (*NavigationData, error) {
 	return navData, nil
 }
 
+// Save saves the navigation data to the file.
 func Save(navData *NavigationData, filename string) error {
-	// 验证数据完整性
+	// Verify the data integrity
 	if err := navData.Validate(); err != nil {
 		return fmt.Errorf("invalid navigation data: %v", err)
 	}
 
 	buf := bytes.NewBuffer(nil)
-	// 写入文件头
+	// Write the file header
 	header := FileHeader{
 		Magic:   NAVIGATION_FILE_MAGIC,
 		Version: NAVIGATION_FILE_VERSION,
@@ -317,6 +333,7 @@ func Save(navData *NavigationData, filename string) error {
 	return nil
 }
 
+// Decompress decompresses the content.
 func Decompress(content []byte) []byte {
 
 	buf := bytes.NewBuffer(content)
@@ -333,6 +350,7 @@ func Decompress(content []byte) []byte {
 	return decompressed
 }
 
+// Compress compresses the content.
 func Compress(content []byte) []byte {
 	buf := bytes.NewBuffer(nil)
 	gzipWriter := gzip.NewWriter(buf)
@@ -341,21 +359,21 @@ func Compress(content []byte) []byte {
 	return buf.Bytes()
 }
 
-// BuildAndSave 构建并保存导航数据（一步到位）
+// BuildAndSave builds and saves the navigation data (one-stop).
 func BuildAndSave(bounds geometry.AABB, maxDepth uint8, minSize float32, stepSize float32, triangles []geometry.Triangle, filename string) error {
-	// 创建构建器
+	// Create the builder
 	builder := NewBuilder(bounds, maxDepth, minSize, stepSize)
 
-	// 添加几何体
+	// Add the geometries
 	builder.AddTriangles(triangles)
 
-	// 构建导航数据
+	// Build the navigation data
 	navData, err := builder.Build(nil)
 	if err != nil {
 		return fmt.Errorf("failed to build navigation data: %v", err)
 	}
 
-	// 保存到文件
+	// Save to file
 	if err := Save(navData, filename); err != nil {
 		return fmt.Errorf("failed to save navigation data: %v", err)
 	}
@@ -363,7 +381,7 @@ func BuildAndSave(bounds geometry.AABB, maxDepth uint8, minSize float32, stepSiz
 	return nil
 }
 
-// ValidateNavigationFile 验证导航文件的完整性
+// ValidateNavigationFile validates the navigation file.
 func ValidateNavigationFile(filename string) error {
 	navData, err := Load(filename)
 	if err != nil {
@@ -373,7 +391,7 @@ func ValidateNavigationFile(filename string) error {
 	return navData.Validate()
 }
 
-// BatchBuild 批量构建多个导航文件
+// BatchBuild builds multiple navigation files.
 func BatchBuild(configs []BuildConfig) error {
 	for i, config := range configs {
 		fmt.Printf("Building navigation file %d/%d: %s\n", i+1, len(configs), config.OutputFile)
@@ -395,7 +413,7 @@ func BatchBuild(configs []BuildConfig) error {
 	return nil
 }
 
-// BuildConfig 构建配置
+// BuildConfig is the build configuration.
 type BuildConfig struct {
 	Bounds     geometry.AABB       `json:"bounds"`
 	MaxDepth   uint8               `json:"max_depth"`

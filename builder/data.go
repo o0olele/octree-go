@@ -8,141 +8,149 @@ import (
 	"github.com/o0olele/octree-go/octree"
 )
 
-// 文件格式常量
+// File format constants
 const (
 	NAVIGATION_FILE_MAGIC   = 0x4E415649 // "NAVI"
 	NAVIGATION_FILE_VERSION = 1
 )
 
-// FileHeader 导航文件头
+// FileHeader is the header of the navigation data file.
 type FileHeader struct {
-	Magic   uint32 // 文件魔数
-	Version uint32 // 版本号
+	Magic   uint32 // Magic number
+	Version uint32 // Version number
 }
 
-// CompactNode 紧凑的节点数据结构
+// CompactNode is the compact node data structure.
 type CompactNode struct {
 	ID     int32          `json:"id"`
 	Bounds geometry.AABB  `json:"bounds"`
 	Center math32.Vector3 `json:"-"`
 }
 
-// CompactEdge 紧凑的边数据结构
+// CompactEdge is the compact edge data structure.
 type CompactEdge struct {
 	NodeAID int32   `json:"node_a_id"`
 	NodeBID int32   `json:"node_b_id"`
 	Cost    float32 `json:"cost"`
 }
 
-// NavigationData 紧凑的导航数据结构，类似于Detour的数据格式
+// NavigationData is the compact navigation data structure, similar to the format of Detour.
 type NavigationData struct {
-	// 基本信息
-	Bounds    geometry.AABB   `json:"bounds"`
-	MaxDepth  uint8           `json:"max_depth"`
-	MinSize   float32         `json:"min_size"`
-	StepSize  float32         `json:"step_size"`
-	GridSize  math32.Vector3i `json:"grid_size"`
-	VoxelSize float32         `json:"voxel_size"`
+	// Basic information
+	Bounds    geometry.AABB   `json:"bounds"`     // The bounds of the navigation data.
+	MaxDepth  uint8           `json:"max_depth"`  // The max depth of the octree.
+	MinSize   float32         `json:"min_size"`   // The min size of the octree.
+	StepSize  float32         `json:"step_size"`  // The step size of the octree.
+	GridSize  math32.Vector3i `json:"grid_size"`  // The size of the voxel grid.
+	VoxelSize float32         `json:"voxel_size"` // The size of the voxel.
 
-	// 节点和边数据
-	Nodes []CompactNode `json:"nodes"`
-	Edges []CompactEdge `json:"edges"`
+	// Node and edge data
+	Nodes []CompactNode `json:"nodes"` // The nodes of the navigation data.
+	Edges []CompactEdge `json:"edges"` // The edges of the navigation data.
 
-	// 空间索引
-	MortonIndex      []int32 `json:"morton_index"`
-	MortonResolution uint32  `json:"morton_resolution"`
+	// Spatial index
+	MortonIndex      []int32 `json:"morton_index"`      // The morton index of the navigation data.
+	MortonResolution uint32  `json:"morton_resolution"` // The morton resolution of the navigation data.
 
-	// 几何体数据（用于碰撞检测）
-	GeometryData []geometry.Triangle `json:"geometry_data"`
-	// 体素数据 (用于碰撞检测)
-	VoxelData []uint64 `json:"voxel_data"`
+	GeometryData []geometry.Triangle `json:"geometry_data"` // Geometry data, using triangles (for collision detection)
+	VoxelData    []uint64            `json:"voxel_data"`    // Voxel data, using bitmap (for collision detection)
 
-	// 邻接表索引（运行时构建，不序列化）
-	// 压缩邻接（CSR）：连续邻接数组 + 偏移 + 度
-	csrNeighbors []int32                 `json:"-"`
-	csrOffsets   []int32                 `json:"-"` // len = 节点数
-	csrDegrees   []int32                 `json:"-"` // len = 节点数
+	// Adjacency table index (built at runtime, not serialized)
+	// Compressed adjacency (CSR): continuous adjacency array + offset + degree
+	csrNeighbors []int32                 `json:"-"` // neighbors array
+	csrOffsets   []int32                 `json:"-"` // len = number of nodes
+	csrDegrees   []int32                 `json:"-"` // len = number of nodes
 	edgeIndex    map[int32][]CompactEdge `json:"-"`
 
-	// 预计算缓存（运行时，不序列化）
+	// Pre-computed cache (built at runtime, not serialized)
 	nodeNeighborCounts    []int32        `json:"-"`
 	nodeBoundaryDistances []float32      `json:"-"`
 	edgePairToIndex       map[uint64]int `json:"-"`
 
-	initialized  bool                         `json:"-"`
-	octree       *octree.Octree               `json:"-"`
-	spatialCache *math32.Cache[uint64, int32] `json:"-"` // 空间查询优化 - 使用LRU缓存
+	initialized  bool                         `json:"-"` // Whether the navigation data is initialized
+	octree       *octree.Octree               `json:"-"` // Octree, build from GeometryData when not using voxel data
+	spatialCache *math32.Cache[uint64, int32] `json:"-"` // Spatial query optimization - using LRU cache
 }
 
+// init initializes the navigation data.
 func (nd *NavigationData) init() error {
-	// 预先构建索引以提高查询性能
+	// Pre-build indexes to improve query performance
 	nd.BuildIndexes()
 
-	// 构建八叉树
+	// Build octree if using geometry data
 	if len(nd.GeometryData) > 0 {
 		nd.octree = octree.NewOctree(nd.Bounds, nd.MaxDepth, nd.StepSize)
 		nd.octree.SetTriangles(nd.GeometryData)
 		nd.octree.Build()
 	}
 
-	// 初始化空间缓存
+	// Initialize spatial cache
 	nd.spatialCache = math32.NewCache[uint64, int32](10000)
 	return nil
 }
 
+// GetOctree returns the octree.
 func (nd *NavigationData) GetOctree() *octree.Octree {
 	return nd.octree
 }
 
-// GetDataSize 计算导航数据的大小（字节）
+// GetDataSize gets the size of the navigation data (in bytes).
 func (nd *NavigationData) GetDataSize() int {
 	size := 0
 
-	// 基本信息
-	size += 8 * 6 // bounds (6 float64)
+	// Basic information
+	size += 4 * 6 // bounds (6 float32)
 	size += 4     // max_depth
-	size += 8     // min_size
-	size += 8     // step_size
+	size += 4     // min_size
+	size += 4     // step_size
+	size += 4 * 3 // grid_size (3 int32)
+	size += 4     // voxel_size
 
-	// 节点数据
-	size += len(nd.Nodes) * (4 + 8*6) // id + center + bounds
+	// Node data
+	size += len(nd.Nodes) * (4 + 4*6 + 4*3) // id + center + bounds
 
-	// 边数据
-	size += len(nd.Edges) * (4 + 4 + 8) // nodeA + nodeB + cost
+	// Edge data
+	size += len(nd.Edges) * (4 + 4 + 4) // nodeA + nodeB + cost
 
-	// Morton索引
+	// Morton index
 	size += len(nd.MortonIndex) * 4
 	size += 4 // morton_resolution
 
-	// 几何体数据
-	size += len(nd.GeometryData)
+	// Geometry data
+	size += len(nd.GeometryData) * 3 * 3 * 4 // 3 vertices (3 float32)
+
+	// Voxel data
+	size += len(nd.VoxelData) * 8 // 8 bytes per voxel
 
 	return size
 }
 
-// GetNodeCount 获取节点数量
+// GetNodeCount gets the number of nodes.
 func (nd *NavigationData) GetNodeCount() int {
 	return len(nd.Nodes)
 }
 
-// GetEdgeCount 获取边数量
+// GetEdgeCount gets the number of edges.
 func (nd *NavigationData) GetEdgeCount() int {
 	return len(nd.Edges)
 }
 
+// GetGeometryCount gets the number of geometries.
 func (nd *NavigationData) GetGeometryCount() int {
 	return len(nd.GeometryData)
 }
 
+// GetGeometryData gets the geometry data.
 func (nd *NavigationData) GetGeometryData() []geometry.Triangle {
 	return nd.GeometryData
 }
 
+// GetSpatialCacheCount gets the number of spatial cache.
 func (nd *NavigationData) GetSpatialCacheCount() int {
 	return nd.spatialCache.Len()
 }
 
-// FindNodeByID 根据ID查找节点
+// FindNodeByID finds the node by ID.
 func (nd *NavigationData) FindNodeByID(id int) *CompactNode {
 	if id < 0 || id >= len(nd.Nodes) {
 		return nil
@@ -150,19 +158,19 @@ func (nd *NavigationData) FindNodeByID(id int) *CompactNode {
 	return &nd.Nodes[id]
 }
 
-// GetNodeEdges 获取节点的所有边
+// GetNodeEdges gets the edges of a node.
 func (nd *NavigationData) GetNodeEdges(nodeID int32) []CompactEdge {
-	// 确保索引已初始化
+	// Ensure the index is initialized
 	if nd.edgeIndex == nil || !nd.initialized {
 		nd.BuildIndexes()
 	}
 	return nd.edgeIndex[nodeID]
 }
 
-// GetNeighbors 获取节点的邻居节点ID
+// GetNeighbors gets the neighbors of a node.
 func (nd *NavigationData) GetNeighbors(nodeID int32) []int32 {
 	if nd.csrNeighbors == nil || nd.csrOffsets == nil || nd.csrDegrees == nil || !nd.initialized {
-		// 懒加载索引
+		// Lazy load the index
 		nd.BuildIndexes()
 	}
 	if nodeID < 0 || int(nodeID) >= len(nd.csrOffsets) {
@@ -176,7 +184,7 @@ func (nd *NavigationData) GetNeighbors(nodeID int32) []int32 {
 	return nd.csrNeighbors[off : off+deg]
 }
 
-// BuildIndexes 预先构建邻接表和边索引
+// BuildIndexes builds the adjacency table and edge index.
 func (nd *NavigationData) BuildIndexes() {
 	if nd.initialized {
 		return
@@ -200,7 +208,7 @@ func (nd *NavigationData) BuildIndexes() {
 		total += deg[i]
 	}
 	neighbors := make([]int32, total)
-	// 临时写指针
+	// Temporary write pointer
 	cursor := make([]int32, n)
 	copy(cursor, offsets)
 
@@ -219,7 +227,7 @@ func (nd *NavigationData) BuildIndexes() {
 		}
 	}
 
-	// 构建边索引（保持 map 以简化调用方）
+	// Build the edge index (keep the map for simplicity)
 	nd.edgeIndex = make(map[int32][]CompactEdge)
 	for _, e := range nd.Edges {
 		nd.edgeIndex[e.NodeAID] = append(nd.edgeIndex[e.NodeAID], e)
@@ -230,11 +238,11 @@ func (nd *NavigationData) BuildIndexes() {
 	nd.csrOffsets = offsets
 	nd.csrDegrees = deg
 
-	// 预计算：节点邻接度缓存
+	// Pre-compute: node neighbor count cache
 	nd.nodeNeighborCounts = make([]int32, n)
 	copy(nd.nodeNeighborCounts, deg)
 
-	// 预计算：节点到场景边界的最小距离
+	// Pre-compute: node to scene boundary minimum distance
 	nd.nodeBoundaryDistances = make([]float32, n)
 	for i := 0; i < n; i++ {
 		center := nd.Nodes[i].Bounds.Center()
@@ -244,7 +252,7 @@ func (nd *NavigationData) BuildIndexes() {
 		nd.nodeBoundaryDistances[i] = math32.Min(dx, math32.Min(dy, dz))
 	}
 
-	// 预计算：边对到索引的映射
+	// Pre-compute: edge pair to index mapping
 	nd.edgePairToIndex = make(map[uint64]int, len(nd.Edges))
 	for idx, e := range nd.Edges {
 		a := e.NodeAID
@@ -259,9 +267,9 @@ func (nd *NavigationData) BuildIndexes() {
 	nd.initialized = true
 }
 
-// Validate 验证导航数据的完整性
+// Validate validates the navigation data.
 func (nd *NavigationData) Validate() error {
-	// 检查节点ID连续性
+	// Check node ID continuity
 	for i, node := range nd.Nodes {
 		nd.Nodes[i].Center = node.Bounds.Center()
 		if node.ID != int32(i) {
@@ -269,7 +277,7 @@ func (nd *NavigationData) Validate() error {
 		}
 	}
 
-	// 检查边的有效性
+	// Check the validity of the edges
 	for i, edge := range nd.Edges {
 		if edge.NodeAID < 0 || edge.NodeAID >= int32(len(nd.Nodes)) {
 			return fmt.Errorf("edge %d has invalid NodeAID: %d", i, edge.NodeAID)
@@ -282,7 +290,7 @@ func (nd *NavigationData) Validate() error {
 		}
 	}
 
-	// 检查Morton索引
+	// Check the validity of the morton index
 	if len(nd.MortonIndex) != len(nd.Nodes) {
 		return fmt.Errorf("morton index length mismatch: expected %d, got %d", len(nd.Nodes), len(nd.MortonIndex))
 	}
@@ -296,7 +304,7 @@ func (nd *NavigationData) Validate() error {
 	return nil
 }
 
-// isPathClear 检查两点之间的路径是否畅通
+// IsPathClear checks if the path is clear between two points.
 func (nd *NavigationData) IsPathClear(agent *octree.Agent, start, end math32.Vector3) bool {
 	if len(nd.VoxelData) > 0 {
 		return nd.IsPathClearByVoxel(agent, start, end)
@@ -304,7 +312,7 @@ func (nd *NavigationData) IsPathClear(agent *octree.Agent, start, end math32.Vec
 	return nd.octree.IsPathClear(agent, start, end)
 }
 
-// GetNodeNeighborCount 返回节点的邻居数量（缓存）
+// GetNodeNeighborCount gets the number of neighbors of a node.
 func (nd *NavigationData) GetNodeNeighborCount(nodeID int32) int32 {
 	if nd.nodeNeighborCounts == nil || !nd.initialized {
 		nd.BuildIndexes()
@@ -315,7 +323,7 @@ func (nd *NavigationData) GetNodeNeighborCount(nodeID int32) int32 {
 	return nd.nodeNeighborCounts[nodeID]
 }
 
-// GetNodeBoundaryDistance 返回节点到边界的最小距离（缓存）
+// GetNodeBoundaryDistance gets the minimum distance from a node to the boundary.
 func (nd *NavigationData) GetNodeBoundaryDistance(nodeID int32) float32 {
 	if nd.nodeBoundaryDistances == nil || !nd.initialized {
 		nd.BuildIndexes()
@@ -326,7 +334,7 @@ func (nd *NavigationData) GetNodeBoundaryDistance(nodeID int32) float32 {
 	return nd.nodeBoundaryDistances[nodeID]
 }
 
-// FindEdgeIndex 返回边索引
+// FindEdgeIndex finds the index of an edge.
 func (nd *NavigationData) FindEdgeIndex(nodeAID, nodeBID int32) int {
 	if nd.edgePairToIndex == nil || !nd.initialized {
 		nd.BuildIndexes()
@@ -342,7 +350,7 @@ func (nd *NavigationData) FindEdgeIndex(nodeAID, nodeBID int32) int {
 	return -1
 }
 
-// GetEdgeCostByNodes 通过节点ID获取边成本
+// GetEdgeCostByNodes gets the cost of an edge by node IDs.
 func (nd *NavigationData) GetEdgeCostByNodes(nodeAID, nodeBID int32) (float32, bool) {
 	idx := nd.FindEdgeIndex(nodeAID, nodeBID)
 	if idx < 0 {
@@ -351,6 +359,7 @@ func (nd *NavigationData) GetEdgeCostByNodes(nodeAID, nodeBID int32) (float32, b
 	return nd.Edges[idx].Cost, true
 }
 
+// IsWorldOccupiedByVoxel checks if a world position is occupied by a voxel.
 func (nd *NavigationData) IsWorldOccupiedByVoxel(worldPos math32.Vector3) bool {
 	if len(nd.VoxelData) == 0 {
 		return false
@@ -365,32 +374,33 @@ func (nd *NavigationData) IsWorldOccupiedByVoxel(worldPos math32.Vector3) bool {
 	return bitmap.Contains(uint32(coord.Z*nd.GridSize.X*nd.GridSize.Y + coord.Y*nd.GridSize.X + coord.X))
 }
 
+// IsPathClearByVoxel checks if the path is clear between two points by voxel.
 func (nd *NavigationData) IsPathClearByVoxel(agent *octree.Agent, start, end math32.Vector3) bool {
-	// 计算方向向量和距离
+	// Calculate the direction vector and distance
 	direction := end.Sub(start)
 	distance := direction.Length()
 
-	if distance < 0.001 { // 距离太近，认为是同一点
+	if distance < 0.001 { // The distance is too close, considered as the same point
 		return true
 	}
 
-	// 标准化方向向量
+	// Normalize the direction vector
 	direction = direction.Scale(1.0 / distance)
 
 	agentRadius := float32(0.4)
 	if agent != nil {
 		agentRadius = agent.Radius
 	}
-	// 使用适当的步长进行采样检查
+	// Use appropriate step size for sampling check
 	stepSize := math32.Max(0.1, agentRadius*0.6)
 	steps := math32.CeilToInt(distance / stepSize)
 
-	// 沿着路径进行采样检测
+	// Sample along the path for detection
 	for i := 0; i <= steps; i++ {
 		t := float32(i) / float32(steps)
 		samplePoint := start.Add(direction.Scale(distance * t))
 
-		// 如果有Agent半径，还需要检查Agent碰撞
+		// If there is an agent radius, also check the agent collision
 		occupied := nd.IsWorldOccupiedByVoxel(samplePoint)
 		if occupied {
 			return false

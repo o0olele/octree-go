@@ -13,21 +13,21 @@ import (
 	"github.com/o0olele/octree-go/voxel"
 )
 
-// Builder 导航网格构建器，类似于Recast
+// Builder is a tool for building navigation data.
 type Builder struct {
-	octree      *octree.Octree
-	pathfinder  *octree.NodeBasedAStarPathfinder
-	bounds      geometry.AABB
-	voxelGrid   *voxel.VoxelGrid
-	maxDepth    uint8
-	minSize     float32
-	stepSize    float32
-	useParallel bool
-	usePrune    bool
-	useVoxel    bool
+	octree      *octree.Octree                   // The octree used to build the navigation data.
+	pathfinder  *octree.NodeBasedAStarPathfinder // The pathfinder used to build the navigation data.
+	bounds      geometry.AABB                    // The bounds of the navigation data.
+	voxelGrid   *voxel.VoxelGrid                 // The voxel grid used to build the navigation data.
+	maxDepth    uint8                            // The max depth of the octree.
+	minSize     float32                          // The min size of the octree.
+	stepSize    float32                          // The step size of the octree.
+	useParallel bool                             // Whether to use parallel building.
+	usePrune    bool                             // Whether to use prune to remove redundant edges.
+	useVoxel    bool                             // Whether to use voxel for collision detection.
 }
 
-// NewBuilder 创建新的导航网格构建器
+// NewBuilder creates a new builder.
 func NewBuilder(bounds geometry.AABB, maxDepth uint8, minSize float32, stepSize float32) *Builder {
 	return &Builder{
 		bounds:      bounds,
@@ -40,42 +40,48 @@ func NewBuilder(bounds geometry.AABB, maxDepth uint8, minSize float32, stepSize 
 	}
 }
 
+// SetUsePrune sets whether to use prune to remove redundant edges.
 func (nb *Builder) SetUsePrune(usePrune bool) {
 	nb.usePrune = usePrune
 }
 
+// SetUseVoxel sets whether to use voxel for collision detection.
 func (nb *Builder) SetUseVoxel(useVoxel bool) {
 	nb.useVoxel = useVoxel
 }
 
+// GetOctree returns the octree.
 func (nb *Builder) GetOctree() *octree.Octree {
 	return nb.octree
 }
 
+// GetVoxelGrid returns the voxel grid.
 func (nb *Builder) GetVoxelGrid() *voxel.VoxelGrid {
 	return nb.voxelGrid
 }
 
+// GetPathFinder returns the pathfinder.
 func (nb *Builder) GetPathFinder() *octree.NodeBasedAStarPathfinder {
 	return nb.pathfinder
 }
 
-// AddTriangle 添加几何体到构建器
+// AddTriangle adds a triangle to the builder.
 func (nb *Builder) AddTriangle(triangle geometry.Triangle) {
 	nb.octree.AddTriangle(triangle)
 }
 
-// AddTriangles 批量添加几何体
+// AddTriangles adds a batch of triangles to the builder.
 func (nb *Builder) AddTriangles(triangles []geometry.Triangle) {
 	nb.octree.AddTriangles(triangles)
 }
 
-// SetParallel 设置是否使用并行构建
+// SetParallel sets whether to use parallel building.
 func (nb *Builder) SetParallel(parallel bool) {
 	nb.useParallel = parallel
 }
 
-func (nb *Builder) calculateVoxelSize(stepSize float32) math32.Vector3i {
+// calculateVoxelGridSize calculates the voxel grid size.
+func (nb *Builder) calculateVoxelGridSize(stepSize float32) math32.Vector3i {
 	return math32.Vector3i{
 		X: int32(math.Ceil(float64(nb.bounds.Size().X / stepSize))),
 		Y: int32(math.Ceil(float64(nb.bounds.Size().Y / stepSize))),
@@ -83,7 +89,7 @@ func (nb *Builder) calculateVoxelSize(stepSize float32) math32.Vector3i {
 	}
 }
 
-// Build 构建导航网格，返回可序列化的导航数据
+// Build builds the navigation data.
 func (nb *Builder) Build(agent *octree.Agent) (*NavigationData, error) {
 	startTime := time.Now()
 
@@ -104,7 +110,7 @@ func (nb *Builder) Build(agent *octree.Agent) (*NavigationData, error) {
 
 	if nb.useVoxel && agent != nil {
 		var voxelSize float32 = agent.Radius * 0.5
-		nb.voxelGrid = voxel.NewVoxelGrid(nb.calculateVoxelSize(voxelSize), voxelSize, nb.bounds.Min)
+		nb.voxelGrid = voxel.NewVoxelGrid(nb.calculateVoxelGridSize(voxelSize), voxelSize, nb.bounds.Min)
 		nb.voxelGrid.VoxelizeWithPadding(nb.octree.GetTriangles(), agent.Radius, agent.Height)
 	}
 
@@ -117,7 +123,7 @@ func (nb *Builder) Build(agent *octree.Agent) (*NavigationData, error) {
 	return navData, nil
 }
 
-// collectEmptyLeaves 收集所有空白叶子节点
+// collectEmptyLeaves collects all empty leaves from the octree.
 func (nb *Builder) collectEmptyLeaves(node *octree.OctreeNode) []*octree.OctreeNode {
 	var emptyNodes []*octree.OctreeNode
 
@@ -136,13 +142,13 @@ func (nb *Builder) collectEmptyLeaves(node *octree.OctreeNode) []*octree.OctreeN
 	return emptyNodes
 }
 
-// createNavigationData 创建优化的导航数据结构
+// createNavigationData creates an optimized navigation data structure.
 func (nb *Builder) createNavigationData() *NavigationData {
 
-	// 收集所有空白叶子节点
+	// 1. Collect all empty leaves from the octree.
 	emptyNodes := nb.collectEmptyLeaves(nb.octree.Root)
 
-	// 创建紧凑的节点数据
+	// 2. Create compact node data.
 	nodes := make([]CompactNode, 0, len(emptyNodes))
 	nodeMap := make(map[*octree.OctreeNode]int32) // 原始节点到新索引的映射
 
@@ -155,7 +161,7 @@ func (nb *Builder) createNavigationData() *NavigationData {
 		nodeMap[octreeNode] = int32(i)
 	}
 
-	// 创建紧凑的边数据
+	// 3. Create compact edge data.
 	edges := make([]CompactEdge, 0)
 	if nb.pathfinder != nil && nb.pathfinder.GetPathGraph() != nil {
 		for _, edge := range nb.pathfinder.GetPathGraph().Edges {
@@ -172,15 +178,15 @@ func (nb *Builder) createNavigationData() *NavigationData {
 		}
 	}
 
-	// 邻接去冗余与裁剪：去重复、过滤长边、限制每个节点的最大度
+	// 4. Prune redundant edges.
 	if nb.usePrune {
 		edges = pruneRedundantEdges(edges, nodes, 12, 2.5)
 		fmt.Printf("Edges after pruning: %d\n", len(edges))
 	}
 
-	// 构建Morton索引
+	// 5. Build Morton index.
 	mortonNodes := make([]octree.MortonNodePair, 0, len(nodes))
-	mortonResolution := uint32(1024) // 固定分辨率
+	mortonResolution := uint32(1024) // Fixed resolution.
 
 	for i, node := range nodes {
 		morton := octree.Vector3ToMorton(node.Bounds.Center(), nb.bounds, mortonResolution)
@@ -190,12 +196,12 @@ func (nb *Builder) createNavigationData() *NavigationData {
 		})
 	}
 
-	// 对Morton编码排序
+	// 6. Sort Morton index.
 	sort.Slice(mortonNodes, func(i, j int) bool {
 		return mortonNodes[i].Morton < mortonNodes[j].Morton
 	})
 
-	// 创建Morton索引
+	// 7. Create Morton index.
 	mortonIndex := make([]int32, len(mortonNodes))
 	for i, pair := range mortonNodes {
 		mortonIndex[i] = pair.Node.ID
@@ -216,28 +222,28 @@ func (nb *Builder) createNavigationData() *NavigationData {
 	}
 
 	if nb.useVoxel {
-		// 使用体素数据作为碰撞检测
+		// Use voxel data as collision detection.
 		data.VoxelData = nb.voxelGrid.ToBitmap()
 		data.GridSize = nb.voxelGrid.Size
 		data.VoxelSize = nb.voxelGrid.VoxelSize
 
-		// 释放几何体数据
+		// Release geometry data.
 		data.GeometryData = nil
 	}
 
 	return data
 }
 
-// pruneRedundantEdges 对边进行去重与裁剪
-// - 移除重复/近似重复边（按无向对保留最小代价）
-// - 过滤相对长边：若一条边长度大于其两端最小邻接边长度的 factor 倍则丢弃
-// - 限制每个节点的最大度，优先保留代价更低的边
+// pruneRedundantEdges removes redundant edges from the edges.
+// - Remove duplicate/approximate duplicate edges (keep the minimum cost for each undirected pair).
+// - Filter relative long edges: If an edge's length is more than factor times the minimum adjacent edge length of its two ends, discard it.
+// - Limit the maximum degree of each node, prioritize edges with lower cost.
 func pruneRedundantEdges(edges []CompactEdge, _ []CompactNode, maxDegree int, longEdgeFactor float32) []CompactEdge {
 	if len(edges) == 0 {
 		return edges
 	}
 
-	// 1) 去重：无向对 -> 最小 cost
+	// 1. Remove duplicate edges.
 	type pair struct{ a, b int32 }
 	key := func(a, b int32) pair {
 		if a > b {
@@ -258,7 +264,7 @@ func pruneRedundantEdges(edges []CompactEdge, _ []CompactNode, maxDegree int, lo
 		dedup = append(dedup, e)
 	}
 
-	// 2) 统计每节点的最小相邻边长
+	// 2. Count the minimum adjacent edge length of each node.
 	minLen := make(map[int32]float32)
 	for _, e := range dedup {
 		if v, ok := minLen[e.NodeAID]; !ok || e.Cost < v {
@@ -269,7 +275,7 @@ func pruneRedundantEdges(edges []CompactEdge, _ []CompactNode, maxDegree int, lo
 		}
 	}
 
-	// 3) 过滤相对过长的边
+	// 3. Filter relative long edges.
 	filtered := dedup[:0]
 	for _, e := range dedup {
 		la := minLen[e.NodeAID]
@@ -283,17 +289,17 @@ func pruneRedundantEdges(edges []CompactEdge, _ []CompactNode, maxDegree int, lo
 		}
 	}
 
-	// 4) 限制每个节点的最大度：按 cost 升序保留
+	// 4. Limit the maximum degree of each node.
 	if maxDegree > 0 {
-		// 建邻接
+		// Build adjacency list.
 		adj := make(map[int32][]CompactEdge)
 		for _, e := range filtered {
 			adj[e.NodeAID] = append(adj[e.NodeAID], e)
-			// 对称也加入，方便统计度
+			// Add symmetric edges for convenience of degree counting.
 			adj[e.NodeBID] = append(adj[e.NodeBID], CompactEdge{NodeAID: e.NodeBID, NodeBID: e.NodeAID, Cost: e.Cost})
 		}
 
-		// 标记保留的无向边
+		// Mark the edges to be kept.
 		keep := make(map[pair]bool)
 
 		for nodeID, list := range adj {
@@ -306,7 +312,7 @@ func pruneRedundantEdges(edges []CompactEdge, _ []CompactNode, maxDegree int, lo
 			}
 		}
 
-		// 收集保留边：需两端至少一端标记保留
+		// Collect the edges to be kept.
 		final := make([]CompactEdge, 0, len(filtered))
 		for _, e := range filtered {
 			if keep[key(e.NodeAID, e.NodeBID)] {
@@ -314,7 +320,7 @@ func pruneRedundantEdges(edges []CompactEdge, _ []CompactNode, maxDegree int, lo
 			}
 		}
 
-		// 最后再做一次严格度裁剪，确保不超过 maxDegree
+		// Strictly prune the edges to ensure the maximum degree is not exceeded.
 		degree := make(map[int32]int)
 		strict := final[:0]
 		for _, e := range final {
@@ -330,7 +336,7 @@ func pruneRedundantEdges(edges []CompactEdge, _ []CompactNode, maxDegree int, lo
 	return filtered
 }
 
-// GetMemoryUsage 获取构建过程的内存使用情况
+// GetMemoryUsage gets the memory usage of the builder.
 func (nb *Builder) GetMemoryUsage() BuildMemoryStats {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -348,14 +354,15 @@ func (nb *Builder) GetMemoryUsage() BuildMemoryStats {
 	}
 
 	if nb.pathfinder != nil && nb.pathfinder.GetGraph() != nil {
-		stats.PathNodes = len(nb.pathfinder.GetGraph().Nodes)
-		stats.PathEdges = len(nb.pathfinder.GetGraph().Edges)
+		graph := nb.pathfinder.GetGraph()
+		stats.PathNodes = len(graph.Nodes)
+		stats.PathEdges = len(graph.Edges)
 	}
 
 	return stats
 }
 
-// countOctreeNodes 统计octree节点数量
+// countOctreeNodes counts the number of octree nodes.
 func (nb *Builder) countOctreeNodes(node *octree.OctreeNode) int {
 
 	if node == nil {
@@ -372,20 +379,14 @@ func (nb *Builder) countOctreeNodes(node *octree.OctreeNode) int {
 	return count
 }
 
-// BuildMemoryStats 构建过程的内存统计
+// BuildMemoryStats is the memory usage of the builder.
 type BuildMemoryStats struct {
-	TotalAlloc  uint64 // 总分配内存
-	Sys         uint64 // 系统内存
-	HeapAlloc   uint64 // 堆内存
-	HeapSys     uint64 // 堆系统内存
-	NumGC       uint32 // GC次数
-	OctreeNodes int    // Octree节点数量
-	PathNodes   int    // 路径节点数量
-	PathEdges   int    // 路径边数量
-}
-
-// SerializableGeometry 可序列化的几何体
-type SerializableGeometry struct {
-	Type string      `json:"type"`
-	Data interface{} `json:"data"`
+	TotalAlloc  uint64 // Total allocated memory
+	Sys         uint64 // System memory
+	HeapAlloc   uint64 // Heap allocated memory
+	HeapSys     uint64 // Heap system memory
+	NumGC       uint32 // GC times
+	OctreeNodes int    // Octree nodes
+	PathNodes   int    // Path nodes
+	PathEdges   int    // Path edges
 }
