@@ -1,8 +1,6 @@
 package octree
 
 import (
-	"encoding/json"
-
 	"github.com/o0olele/octree-go/geometry"
 	"github.com/o0olele/octree-go/math32"
 )
@@ -293,52 +291,6 @@ func (o *Octree) IsPathClear(agent *Agent, start, end math32.Vector3) bool {
 	}
 
 	return true
-}
-
-// 用于JSON序列化的简化结构
-type OctreeExport struct {
-	Root     *OctreeNodeExport `json:"root"`
-	MaxDepth uint8             `json:"max_depth"`
-	MinSize  float32           `json:"min_size"`
-}
-
-type OctreeNodeExport struct {
-	Bounds     geometry.AABB       `json:"bounds"`
-	Children   []*OctreeNodeExport `json:"children,omitempty"`
-	IsLeaf     bool                `json:"is_leaf"`
-	IsOccupied bool                `json:"is_occupied"`
-	Depth      uint8               `json:"depth"`
-}
-
-// ToJSON 导出八叉树为JSON
-func (o *Octree) ToJSON() ([]byte, error) {
-	export := &OctreeExport{
-		Root:     o.nodeToExport(o.Root),
-		MaxDepth: o.MaxDepth,
-		MinSize:  o.MinSize,
-	}
-	return json.Marshal(export)
-}
-
-func (o *Octree) nodeToExport(node *OctreeNode) *OctreeNodeExport {
-	if node == nil {
-		return nil
-	}
-
-	export := &OctreeNodeExport{
-		Bounds:     node.Bounds,
-		IsLeaf:     node.IsLeaf(),
-		IsOccupied: node.IsOccupied(),
-		Depth:      node.Depth,
-	}
-
-	if !node.IsLeaf() {
-		for _, child := range node.Children {
-			export.Children = append(export.Children, o.nodeToExport(child))
-		}
-	}
-
-	return export
 }
 
 // Raycast 在八叉树中进行射线检测，返回是否命中、命中距离、命中点与命中三角形
