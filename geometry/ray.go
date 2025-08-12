@@ -2,7 +2,7 @@ package geometry
 
 import "github.com/o0olele/octree-go/math32"
 
-// RayTriangle 射线与三角形相交，返回是否命中与距离 t（基于 Möller–Trumbore）
+// RayTriangle checks if the ray intersects with the triangle (based on Möller–Trumbore)
 func RayTriangle(origin, dir math32.Vector3, tri *Triangle) (bool, float32) {
 	const eps = 1e-6
 	v0 := tri.A
@@ -34,13 +34,13 @@ func RayTriangle(origin, dir math32.Vector3, tri *Triangle) (bool, float32) {
 	return true, t
 }
 
-// RayAABB 射线与 AABB 相交（slab 方法），返回 [tmin, tmax] 与是否相交
+// RayAABB checks if the ray intersects with the AABB (slab method), returns [tmin, tmax] and whether it intersects
 func RayAABB(origin, dir math32.Vector3, aabb AABB) (float32, float32, bool) {
 	const eps = 1e-6
 	tmin := float32(-math32.MaxFloat32)
 	tmax := float32(math32.MaxFloat32)
 
-	// X 轴
+	// X axis
 	if math32.Abs(dir.X) < eps {
 		if origin.X < aabb.Min.X || origin.X > aabb.Max.X {
 			return 0, 0, false
@@ -62,7 +62,7 @@ func RayAABB(origin, dir math32.Vector3, aabb AABB) (float32, float32, bool) {
 		}
 	}
 
-	// Y 轴
+	// Y axis
 	if math32.Abs(dir.Y) < eps {
 		if origin.Y < aabb.Min.Y || origin.Y > aabb.Max.Y {
 			return 0, 0, false
@@ -84,7 +84,7 @@ func RayAABB(origin, dir math32.Vector3, aabb AABB) (float32, float32, bool) {
 		}
 	}
 
-	// Z 轴
+	// Z axis
 	if math32.Abs(dir.Z) < eps {
 		if origin.Z < aabb.Min.Z || origin.Z > aabb.Max.Z {
 			return 0, 0, false

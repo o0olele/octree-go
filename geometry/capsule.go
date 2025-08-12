@@ -4,13 +4,14 @@ import (
 	"github.com/o0olele/octree-go/math32"
 )
 
-// Capsule 胶囊体几何体
+// Capsule is a capsule geometry
 type Capsule struct {
 	Start  math32.Vector3 `json:"start"`
 	End    math32.Vector3 `json:"end"`
 	Radius float32        `json:"radius"`
 }
 
+// GetBounds returns the bounding box of the capsule
 func (c *Capsule) GetBounds() AABB {
 	minX := math32.Min(c.Start.X, c.End.X) - c.Radius
 	maxX := math32.Max(c.Start.X, c.End.X) + c.Radius
@@ -24,6 +25,7 @@ func (c *Capsule) GetBounds() AABB {
 	}
 }
 
+// IntersectsAABB checks if the capsule intersects with an AABB
 func (c *Capsule) IntersectsAABB(aabb AABB) bool {
 	bounds := c.GetBounds()
 	return !(bounds.Max.X < aabb.Min.X || bounds.Min.X > aabb.Max.X ||
@@ -31,8 +33,9 @@ func (c *Capsule) IntersectsAABB(aabb AABB) bool {
 		bounds.Max.Z < aabb.Min.Z || bounds.Min.Z > aabb.Max.Z)
 }
 
+// ContainsPoint checks if the point is inside the capsule
 func (c *Capsule) ContainsPoint(point math32.Vector3) bool {
-	// 计算点到胶囊轴线的距离
+	// calculate the distance from the point to the capsule axis
 	axis := c.End.Sub(c.Start)
 	toPoint := point.Sub(c.Start)
 
@@ -43,8 +46,4 @@ func (c *Capsule) ContainsPoint(point math32.Vector3) bool {
 	t := math32.Max(0, math32.Min(1, toPoint.Dot(axis)/axis.Dot(axis)))
 	closest := c.Start.Add(axis.Scale(t))
 	return point.Distance(closest) <= c.Radius
-}
-
-func (c *Capsule) GetType() string {
-	return "capsule"
 }

@@ -2,12 +2,13 @@ package geometry
 
 import "github.com/o0olele/octree-go/math32"
 
-// ConvexMesh 凸包网格几何体
+// ConvexMesh is a convex mesh geometry
 type ConvexMesh struct {
-	Vertices []math32.Vector3 `json:"vertices"` // 凸包的顶点
-	Faces    [][]int          `json:"faces"`    // 面，每个面是顶点索引的数组
+	Vertices []math32.Vector3 `json:"vertices"` // the vertices of the convex mesh
+	Faces    [][]int          `json:"faces"`    // the faces of the convex mesh, each face is an array of vertex indices
 }
 
+// GetBounds returns the bounding box of the convex mesh
 func (cm *ConvexMesh) GetBounds() AABB {
 	if len(cm.Vertices) == 0 {
 		return AABB{
@@ -43,49 +44,47 @@ func (cm *ConvexMesh) GetBounds() AABB {
 	return AABB{min, max}
 }
 
+// IntersectsAABB checks if the convex mesh intersects with an AABB
 func (cm *ConvexMesh) IntersectsAABB(aabb AABB) bool {
 	bounds := cm.GetBounds()
 	return bounds.Intersects(aabb)
 }
 
+// ContainsPoint checks if the point is inside the convex mesh
 func (cm *ConvexMesh) ContainsPoint(point math32.Vector3) bool {
-	// 使用分离轴定理(SAT)的简化版本来检测点是否在凸包内
-	// 对于凸包，如果点在所有面的内侧，则点在凸包内
+	// use the simplified version of the separating axis theorem (SAT) to detect if the point is inside the convex mesh
+	// for the convex mesh, if the point is inside all the faces, then the point is inside the convex mesh
 	for _, face := range cm.Faces {
 		if len(face) < 3 {
-			continue // 跳过无效面
+			continue // skip invalid face
 		}
 
-		// 获取面的三个顶点来计算法向量
+		// get the three vertices of the face to calculate the normal
 		v0 := cm.Vertices[face[0]]
 		v1 := cm.Vertices[face[1]]
 		v2 := cm.Vertices[face[2]]
 
-		// 计算面的法向量（假设顶点按逆时针顺序排列）
+		// calculate the normal of the face (assuming the vertices are in counter-clockwise order)
 		edge1 := v1.Sub(v0)
 		edge2 := v2.Sub(v0)
 		normal := edge1.Cross(edge2)
 
-		// 标准化法向量
+		// normalize the normal
 		length := normal.Length()
 		if length == 0 {
-			continue // 退化面
+			continue // degenerate face
 		}
 		normal = normal.Scale(1.0 / length)
 
-		// 计算点到面的距离
+		// calculate the distance from the point to the face
 		toPoint := point.Sub(v0)
 		distance := toPoint.Dot(normal)
 
-		// 如果点在面的外侧（距离为正），则点不在凸包内
+		// if the point is outside the face (distance is positive), then the point is not inside the convex mesh
 		if distance > 0 {
 			return false
 		}
 	}
 
 	return true
-}
-
-func (cm *ConvexMesh) GetType() string {
-	return "convex_mesh"
 }

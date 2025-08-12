@@ -4,13 +4,14 @@ import (
 	"github.com/o0olele/octree-go/math32"
 )
 
-// Triangle 三角形几何体
+// Triangle is a triangle geometry
 type Triangle struct {
 	A math32.Vector3 `json:"a"`
 	B math32.Vector3 `json:"b"`
 	C math32.Vector3 `json:"c"`
 }
 
+// GetBounds returns the bounding box of the triangle
 func (t *Triangle) GetBounds() AABB {
 	minX := math32.Min(math32.Min(t.A.X, t.B.X), t.C.X)
 	maxX := math32.Max(math32.Max(t.A.X, t.B.X), t.C.X)
@@ -24,34 +25,35 @@ func (t *Triangle) GetBounds() AABB {
 	}
 }
 
+// IntersectsAABB checks if the triangle intersects with an AABB
 func (t *Triangle) IntersectsAABB(aabb AABB) bool {
-	// 首先进行快速包围盒检测
+	// first perform the quick bounding box detection
 	bounds := t.GetBounds()
 	if !bounds.Intersects(aabb) {
 		return false
 	}
 
-	// 对于简单情况，如果三角形完全在AABB内，直接返回true
+	// for simple cases, if the triangle is completely inside the AABB, return true
 	if aabb.Contains(t.A) && aabb.Contains(t.B) && aabb.Contains(t.C) {
 		return true
 	}
 
-	// 使用Separating Axis Theorem (SAT) 进行精确检测
-	// 将AABB转换为中心点和半尺寸
+	// use the Separating Axis Theorem (SAT) for precise detection
+	// convert the AABB to center and half size
 	center := aabb.Center()
 	halfSize := aabb.Size().Scale(0.5)
 
-	// 将三角形顶点转换为相对于AABB中心的坐标
+	// convert the triangle vertices to coordinates relative to the AABB center
 	v0 := t.A.Sub(center)
 	v1 := t.B.Sub(center)
 	v2 := t.C.Sub(center)
 
-	// 计算三角形的边向量
+	// calculate the edge vectors of the triangle
 	f0 := v1.Sub(v0) // edge 0
 	f1 := v2.Sub(v1) // edge 1
 	f2 := v0.Sub(v2) // edge 2
 
-	// 测试三角形的法向量
+	// test the normal of the triangle
 	normal := f0.Cross(f1)
 	if normal.Length() > 1e-10 {
 		if !t.testSeparatingAxis(normal, v0, v1, v2, halfSize) {
@@ -59,7 +61,7 @@ func (t *Triangle) IntersectsAABB(aabb AABB) bool {
 		}
 	}
 
-	// 测试AABB的3个面法向量
+	// test the 3 faces of the AABB
 	aabbAxes := []math32.Vector3{
 		{X: 1, Y: 0, Z: 0},
 		{X: 0, Y: 1, Z: 0},
@@ -72,24 +74,24 @@ func (t *Triangle) IntersectsAABB(aabb AABB) bool {
 		}
 	}
 
-	// 测试9个轴（3个AABB面法向量 × 3个三角形边向量的叉积）
+	// test 9 axes (3 AABB face normals × 3 triangle edge vectors)
 	crossAxes := []math32.Vector3{
-		// 轴 u0 x f0, u0 x f1, u0 x f2
+		// axis u0 x f0, u0 x f1, u0 x f2
 		{X: 0, Y: -f0.Z, Z: f0.Y},
 		{X: 0, Y: -f1.Z, Z: f1.Y},
 		{X: 0, Y: -f2.Z, Z: f2.Y},
-		// 轴 u1 x f0, u1 x f1, u1 x f2
+		// axis u1 x f0, u1 x f1, u1 x f2
 		{X: f0.Z, Y: 0, Z: -f0.X},
 		{X: f1.Z, Y: 0, Z: -f1.X},
 		{X: f2.Z, Y: 0, Z: -f2.X},
-		// 轴 u2 x f0, u2 x f1, u2 x f2
+		// axis u2 x f0, u2 x f1, u2 x f2
 		{X: -f0.Y, Y: f0.X, Z: 0},
 		{X: -f1.Y, Y: f1.X, Z: 0},
 		{X: -f2.Y, Y: f2.X, Z: 0},
 	}
 
 	for _, axis := range crossAxes {
-		// 跳过零向量
+		// skip zero vector
 		if axis.Length() < 1e-10 {
 			continue
 		}
@@ -101,68 +103,66 @@ func (t *Triangle) IntersectsAABB(aabb AABB) bool {
 	return true
 }
 
-// testSeparatingAxis 测试给定轴上的投影是否分离
+// testSeparatingAxis checks if the projection of the triangle on the given axis is separated
 func (t *Triangle) testSeparatingAxis(axis math32.Vector3, v0, v1, v2, halfSize math32.Vector3) bool {
-	// 计算三角形顶点在轴上的投影
+	// calculate the projection of the triangle vertices on the axis
 	p0 := v0.Dot(axis)
 	p1 := v1.Dot(axis)
 	p2 := v2.Dot(axis)
 
-	// 找到三角形投影的最小值和最大值
+	// find the minimum and maximum values of the triangle projection
 	triMin := math32.Min(math32.Min(p0, p1), p2)
 	triMax := math32.Max(math32.Max(p0, p1), p2)
 
-	// 计算AABB在轴上的投影半径
+	// calculate the radius of the AABB projection on the axis
 	r := math32.Abs(halfSize.X*axis.X) + math32.Abs(halfSize.Y*axis.Y) + math32.Abs(halfSize.Z*axis.Z)
 
-	// 检查是否分离
+	// check if they are separated
 	return !(triMax < -r || triMin > r)
 }
 
+// ContainsPoint checks if the point is inside the triangle
 func (t *Triangle) ContainsPoint(point math32.Vector3) bool {
 	bounds := t.GetBounds()
 	return bounds.Contains(point)
 
-	// // 首先检查点是否在三角形所在的平面上
+	// // first check if the point is on the plane of the triangle
 	// if !t.isPointOnTrianglePlane(point) {
 	// 	return false
 	// }
 
-	// // 使用重心坐标检测点是否在三角形内
+	// // use the barycentric coordinate to detect if the point is inside the triangle
 	// return t.isPointInTriangle(point)
 }
 
-// isPointOnTrianglePlane 检查点是否在三角形所在的平面上（允许一定的误差）
+// IsPointOnTrianglePlane checks if the point is on the plane of the triangle (with a small error)
 func (t *Triangle) IsPointOnTrianglePlane(point math32.Vector3) bool {
-	// 计算三角形的法向量
+	// calculate the normal of the triangle
 	edge1 := t.B.Sub(t.A)
 	edge2 := t.C.Sub(t.A)
 	normal := edge1.Cross(edge2)
 
-	// 如果三角形退化（面积为0），使用包围盒检测
+	// if the triangle is degenerate (area is 0), use the bounding box detection
 	if normal.Length() < 1e-10 {
 		bounds := t.GetBounds()
 		return bounds.Contains(point)
 	}
 
-	// 标准化法向量
+	// normalize the normal
 	normal = normal.Scale(1.0 / normal.Length())
 
-	// 计算点到平面的距离
+	// calculate the distance from the point to the plane
 	toPoint := point.Sub(t.A)
 	distance := math32.Abs(toPoint.Dot(normal))
 
-	// 允许小的误差（例如，由于浮点精度问题）
+	// allow small errors (e.g., due to floating point precision issues)
 	const tolerance = 1e-6
 	return distance < tolerance
 }
 
+// GetNormal returns the normal of the triangle
 func (t *Triangle) GetNormal() math32.Vector3 {
 	edge1 := t.B.Sub(t.A)
 	edge2 := t.C.Sub(t.A)
 	return edge1.Cross(edge2).Normalize()
-}
-
-func (t *Triangle) GetType() string {
-	return "triangle"
 }

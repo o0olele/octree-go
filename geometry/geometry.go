@@ -6,16 +6,15 @@ import (
 	"github.com/o0olele/octree-go/math32"
 )
 
-// Geometry 接口定义
+// Geometry interface defines the common methods for all the geometry types
 type Geometry interface {
 	GetBounds() AABB
 	IntersectsAABB(aabb AABB) bool
 	ContainsPoint(point math32.Vector3) bool
-	GetType() string
 }
 
 func init() {
-	// 注册gob类型
+	// register the gob types
 	gob.Register(Triangle{})
 	gob.Register(Box{})
 	gob.Register(Capsule{})
