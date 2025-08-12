@@ -10,21 +10,16 @@ import (
 	"github.com/o0olele/octree-go/octree"
 )
 
-// NavigationQuery 导航查询器，类似于Detour，只负责运行时查询
+// NavigationQuery is the navigation query, similar to Detour, only responsible for runtime queries
 type NavigationQuery struct {
-	navData         *builder.NavigationData
-	agent           *octree.Agent
-	stepSize        float32
-	pathPreferences *PathPreferences // 路径偏好配置
+	navData         *builder.NavigationData // the navigation data
+	agent           *octree.Agent           // the agent
+	stepSize        float32                 // the step size
+	pathPreferences *PathPreferences        // path preferences configuration
 }
 
-// NewNavigationQuery 创建新的导航查询器
+// NewNavigationQuery creates a new navigation query
 func NewNavigationQuery(navData *builder.NavigationData) (*NavigationQuery, error) {
-	return NewNavigationQueryWithCacheSize(navData)
-}
-
-// NewNavigationQueryWithCacheSize 创建新的导航查询器，指定缓存大小
-func NewNavigationQueryWithCacheSize(navData *builder.NavigationData) (*NavigationQuery, error) {
 	if err := navData.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid navigation data: %v", err)
 	}
@@ -39,38 +34,40 @@ func NewNavigationQueryWithCacheSize(navData *builder.NavigationData) (*Navigati
 	return nq, nil
 }
 
+// GetOctree gets the octree
 func (nq *NavigationQuery) GetOctree() *octree.Octree {
 	return nq.navData.GetOctree()
 }
 
-// SetAgent 设置代理
+// SetAgent sets the agent
 func (nq *NavigationQuery) SetAgent(agent *octree.Agent) {
 	nq.agent = agent
 }
 
-// GetAgent 获取代理
+// GetAgent gets the agent
 func (nq *NavigationQuery) GetAgent() *octree.Agent {
 
 	return nq.agent
 }
 
-// SetStepSize 设置步长
+// SetStepSize sets the step size
 func (nq *NavigationQuery) SetStepSize(stepSize float32) {
 	nq.stepSize = stepSize
 }
 
-// GetStepSize 获取步长
+// GetStepSize gets the step size
 func (nq *NavigationQuery) GetStepSize() float32 {
 	return nq.stepSize
 }
 
+// GetNavigationData gets the navigation data
 func (nq *NavigationQuery) GetNavigationData() *builder.NavigationData {
 	return nq.navData
 }
 
-// FindPath 查找路径
+// FindPath finds the path
 func (nq *NavigationQuery) FindPath(start, end math32.Vector3) []math32.Vector3 {
-	// 1. 找到起点和终点最近的节点
+	// 1. find the closest nodes to the start and end points
 	startNodeID := nq.FindClosestNode(start)
 	endNodeID := nq.FindClosestNode(end)
 
@@ -78,13 +75,13 @@ func (nq *NavigationQuery) FindPath(start, end math32.Vector3) []math32.Vector3 
 		return nil
 	}
 
-	// 2. 优先使用双向A*算法查找路径
+	// 2. use the bidirectional A* algorithm to find the path
 	startTime := time.Now()
 	nodePath := nq.AstarBidirectional(startNodeID, endNodeID)
 	if nodePath != nil {
 		fmt.Printf("Bi-directional A* algorithm took %v\n", time.Since(startTime))
 	} else {
-		// 回退到单向A*
+		// fall back to the single-direction A* algorithm
 		startTime = time.Now()
 		nodePath = nq.Astar(startNodeID, endNodeID)
 		if nodePath == nil {
@@ -93,24 +90,24 @@ func (nq *NavigationQuery) FindPath(start, end math32.Vector3) []math32.Vector3 
 		fmt.Printf("A* algorithm took %v\n", time.Since(startTime))
 	}
 
-	// 3. 转换为世界坐标路径
-	path := nq.convertToWorldPath(nodePath, start, end)
+	// 3. convert to world coordinate path
+	path := nq.ConvertToWorldPath(nodePath, start, end)
 	fmt.Printf("Path length: %d, took %v\n", len(path), time.Since(startTime))
 	return path
 }
 
-// FindClosestNode 查找最近的节点
+// FindClosestNode finds the closest node
 func (nq *NavigationQuery) FindClosestNode(pos math32.Vector3) int32 {
 	return nq.navData.FindClosestNodeMorton(pos)
 }
 
-// Astar A*寻路算法
+// Astar is the A* algorithm
 func (nq *NavigationQuery) Astar(startNodeID, endNodeID int32) []int32 {
 	if startNodeID == endNodeID {
 		return []int32{startNodeID}
 	}
 
-	// 初始化开放列表和关闭列表
+	// initialize the open and closed lists
 	openSet := &nodeHeap{}
 	heap.Init(openSet)
 
@@ -118,9 +115,9 @@ func (nq *NavigationQuery) Astar(startNodeID, endNodeID int32) []int32 {
 	gScore := make(map[int32]float32)
 	fScore := make(map[int32]float32)
 	cameFrom := make(map[int32]int32)
-	inOpenSet := make(map[int32]*heapNode) // 优化：使用map快速查找开放列表中的节点
+	inOpenSet := make(map[int32]*heapNode) // optimization: use map to quickly find nodes in the open list
 
-	// 起点
+	// start point
 	startNode := &nq.navData.Nodes[startNodeID]
 	endNode := &nq.navData.Nodes[endNodeID]
 
@@ -131,7 +128,7 @@ func (nq *NavigationQuery) Astar(startNodeID, endNodeID int32) []int32 {
 	heap.Push(openSet, startHeapNode)
 	inOpenSet[startNodeID] = startHeapNode
 
-	// 添加最大迭代限制，防止无限循环
+	// add the maximum iteration limit to prevent infinite loop
 	maxIterations := 20000
 	iterations := 0
 
@@ -140,10 +137,10 @@ func (nq *NavigationQuery) Astar(startNodeID, endNodeID int32) []int32 {
 
 		current := heap.Pop(openSet).(*heapNode)
 		currentNodeID := current.nodeID
-		delete(inOpenSet, currentNodeID) // 从开放列表映射中删除
+		delete(inOpenSet, currentNodeID) // delete from the open list mapping
 
 		if currentNodeID == endNodeID {
-			// 重构路径
+			// reconstruct the path
 			path := make([]int32, 0)
 			nodeID := endNodeID
 			for {
@@ -158,14 +155,14 @@ func (nq *NavigationQuery) Astar(startNodeID, endNodeID int32) []int32 {
 
 		closedSet[currentNodeID] = true
 
-		// 检查邻居
+		// check the neighbors
 		neighbors := nq.navData.GetNeighbors(currentNodeID)
 		for _, neighborID := range neighbors {
 			if closedSet[neighborID] {
 				continue
 			}
 
-			// 计算移动成本
+			// calculate the movement cost
 			tentativeG := gScore[currentNodeID] + nq.calculateEnhancedMovementCost(currentNodeID, neighborID)
 
 			if existingG, exists := gScore[neighborID]; !exists || tentativeG < existingG {
@@ -174,13 +171,13 @@ func (nq *NavigationQuery) Astar(startNodeID, endNodeID int32) []int32 {
 				neighborNode := &nq.navData.Nodes[neighborID]
 				fScore[neighborID] = tentativeG + nq.heuristic(neighborNode.Center, endNode.Center)
 
-				// 优化：使用map快速检查是否已在开放列表中
+				// optimization: use map to quickly check if the node is in the open list
 				if existingHeapNode, exists := inOpenSet[neighborID]; exists {
-					// 更新现有节点的fScore并修复堆
+					// update the fScore of the existing node and fix the heap
 					existingHeapNode.fScore = fScore[neighborID]
 					heap.Fix(openSet, existingHeapNode.index)
 				} else {
-					// 添加新节点到开放列表
+					// add the new node to the open list
 					newHeapNode := newHeapNode(neighborID, fScore[neighborID])
 					heap.Push(openSet, newHeapNode)
 					inOpenSet[neighborID] = newHeapNode
@@ -190,40 +187,40 @@ func (nq *NavigationQuery) Astar(startNodeID, endNodeID int32) []int32 {
 	}
 
 	openSet.Clear()
-	return nil // 没有找到路径
+	return nil // no path found
 }
 
-// AstarBidirectional 双向A*寻路算法
+// AstarBidirectional is the bidirectional A* algorithm
 func (nq *NavigationQuery) AstarBidirectional(startNodeID, endNodeID int32) []int32 {
 	if startNodeID == endNodeID {
 		return []int32{startNodeID}
 	}
 
-	// 前向与后向开放列表
+	// forward and backward open lists
 	forwardOpen := &nodeHeap{}
 	backwardOpen := &nodeHeap{}
 	heap.Init(forwardOpen)
 	heap.Init(backwardOpen)
 
-	// 关闭列表
+	// closed list
 	forwardClosed := make(map[int32]bool)
 	backwardClosed := make(map[int32]bool)
 
-	// gScore 与来源映射
+	// gScore and cameFrom mapping
 	gForward := make(map[int32]float32)
 	gBackward := make(map[int32]float32)
 	cameFromForward := make(map[int32]int32)
 	cameFromBackward := make(map[int32]int32)
 
-	// 开放列表中的节点引用，便于 O(1) 更新
+	// node references in the open list, for O(1) update
 	inForwardOpen := make(map[int32]*heapNode)
 	inBackwardOpen := make(map[int32]*heapNode)
 
-	// 起点与终点
+	// start and end points
 	startNode := &nq.navData.Nodes[startNodeID]
 	endNode := &nq.navData.Nodes[endNodeID]
 
-	// 初始化
+	// initialize
 	gForward[startNodeID] = 0
 	gBackward[endNodeID] = 0
 	startF := nq.heuristic(startNode.Center, endNode.Center)
@@ -244,7 +241,7 @@ func (nq *NavigationQuery) AstarBidirectional(startNodeID, endNodeID int32) []in
 	for forwardOpen.Len() > 0 && backwardOpen.Len() > 0 && iterations < maxIterations {
 		iterations++
 
-		// 选择扩展方向：取当前两个堆顶 fScore 较小的一侧
+		// select the expansion direction: take the side with the smaller fScore of the current two heaps
 		expandForward := false
 		if backwardOpen.Len() == 0 {
 			expandForward = true
@@ -353,7 +350,7 @@ func (nq *NavigationQuery) AstarBidirectional(startNodeID, endNodeID int32) []in
 		return nil
 	}
 
-	// 重构路径：start -> meetingNode
+	// reconstruct the path: start -> meetingNode
 	forwardPath := make([]int32, 0)
 	{
 		node := meetingNode
@@ -364,14 +361,14 @@ func (nq *NavigationQuery) AstarBidirectional(startNodeID, endNodeID int32) []in
 			}
 			parent, ok := cameFromForward[node]
 			if !ok {
-				// 如果前向没有记录，可能 meetingNode 就是 startNodeID 或由后向抵达
+				// if the forward has no record, the meetingNode may be startNodeID or reached by the backward
 				break
 			}
 			node = parent
 		}
 	}
 
-	// meetingNode -> end（使用后向 cameFrom）
+	// meetingNode -> end (using the backward cameFrom)
 	backwardPath := make([]int32, 0)
 	{
 		node := meetingNode
@@ -380,26 +377,26 @@ func (nq *NavigationQuery) AstarBidirectional(startNodeID, endNodeID int32) []in
 			if !ok {
 				break
 			}
-			// 追加下一个到终点的方向
+			// append the next to the end
 			backwardPath = append(backwardPath, next)
 			node = next
 		}
 	}
 
-	// 合并，避免重复 meetingNode
+	// merge, avoid duplicate meetingNode
 	combined := make([]int32, 0, len(forwardPath)+len(backwardPath))
 	combined = append(combined, forwardPath...)
 	if len(backwardPath) > 0 {
-		// backwardPath 已经从 meetingNode 后一个开始
+		// backwardPath has already started from the next of the meetingNode
 		combined = append(combined, backwardPath...)
 	}
 
-	// 最终校验首尾
+	// finally check the start and end
 	if len(combined) == 0 {
 		return nil
 	}
 	if combined[0] != startNodeID {
-		// 若前半未包含 start，则补上
+		// if the start is not included in the first half, add it
 		combined = append([]int32{startNodeID}, combined...)
 	}
 	if combined[len(combined)-1] != endNodeID {
@@ -409,18 +406,18 @@ func (nq *NavigationQuery) AstarBidirectional(startNodeID, endNodeID int32) []in
 	return combined
 }
 
-// heuristic 启发式函数
+// heuristic is the heuristic function
 func (nq *NavigationQuery) heuristic(a, b math32.Vector3) float32 {
 	return a.Distance(b)
 }
 
-// convertToWorldPath 将节点路径转换为世界坐标路径
-func (nq *NavigationQuery) convertToWorldPath(nodePath []int32, start, end math32.Vector3) []math32.Vector3 {
+// ConvertToWorldPath converts the node path to world coordinate path
+func (nq *NavigationQuery) ConvertToWorldPath(nodePath []int32, start, end math32.Vector3) []math32.Vector3 {
 	if len(nodePath) == 0 {
 		return nil
 	}
 
-	// 将节点ID转换为PathNode结构
+	// convert the node ID to PathNode structure
 	pathNodes := make([]*octree.PathNode, len(nodePath)+2)
 	pathNodes[0] = &octree.PathNode{
 		Center: start,
@@ -439,10 +436,10 @@ func (nq *NavigationQuery) convertToWorldPath(nodePath []int32, start, end math3
 		}
 	}
 
-	// 使用视线优化算法
+	// use the visibility optimization algorithm
 	smoothedPath := nq.SmoothPath(pathNodes)
 
-	// 如果视线优化算法返回空路径，回退到简单方法
+	// if the visibility optimization algorithm returns an empty path, fall back to the simple method
 	if len(smoothedPath) == 0 {
 		path := make([]math32.Vector3, 0, len(nodePath)+2)
 		path = append(path, start)
@@ -454,7 +451,7 @@ func (nq *NavigationQuery) convertToWorldPath(nodePath []int32, start, end math3
 		return path
 	}
 
-	// 确保起点和终点正确
+	// ensure the start and end points are correct
 	if len(smoothedPath) > 0 {
 		smoothedPath[0] = start
 		smoothedPath[len(smoothedPath)-1] = end
@@ -463,12 +460,12 @@ func (nq *NavigationQuery) convertToWorldPath(nodePath []int32, start, end math3
 	return smoothedPath
 }
 
-// GetNavData 获取导航数据
+// GetNavData gets the navigation data
 func (nq *NavigationQuery) GetNavData() *builder.NavigationData {
 	return nq.navData
 }
 
-// GetStats 获取统计信息
+// GetStats gets the statistics
 func (nq *NavigationQuery) GetStats() NavigationStats {
 	return NavigationStats{
 		NodeCount:     len(nq.navData.Nodes),
@@ -479,11 +476,11 @@ func (nq *NavigationQuery) GetStats() NavigationStats {
 	}
 }
 
-// NavigationStats 导航统计信息
+// NavigationStats is the navigation statistics
 type NavigationStats struct {
-	NodeCount     int // 节点数量
-	EdgeCount     int // 边数量
-	GeometryCount int // 几何体数量
-	CacheSize     int // 缓存大小
-	DataSize      int // 数据大小（字节）
+	NodeCount     int // node count
+	EdgeCount     int // edge count
+	GeometryCount int // geometry count
+	CacheSize     int // cache size
+	DataSize      int // data size (bytes)
 }
