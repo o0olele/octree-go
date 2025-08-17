@@ -1,5 +1,6 @@
 package math32
 
+// Bitmap is a bitmap of 64-bit integers, which can be used to represent a set of bit values.
 type Bitmap []uint64
 
 // Set sets the bit x in the bitmap and grows it if necessary.

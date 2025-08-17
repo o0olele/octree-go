@@ -5,23 +5,23 @@ import (
 	"sync"
 )
 
-// Cache 是一个泛型 LRU 缓存结构
+// Cache is a generic LRU cache structure.
 type Cache[K comparable, V any] struct {
 	capacity int
-	ll       *list.List          // 双向链表存储元素
-	cache    map[K]*list.Element // 哈希表用于快速查找
-	mu       sync.RWMutex        // 互斥锁保证线程安全
-	hits     int64               // 缓存命中次数
-	misses   int64               // 缓存未命中次数
+	ll       *list.List          // Doubly linked list to store elements
+	cache    map[K]*list.Element // Hash table for fast lookup
+	mu       sync.RWMutex        // Mutex to ensure thread safety
+	hits     int64               // Cache hit count
+	misses   int64               // Cache miss count
 }
 
-// entry 是缓存中的条目结构
+// entry is the entry structure in the cache.
 type entry[K comparable, V any] struct {
 	key   K
 	value V
 }
 
-// NewCache 创建一个新的 LRU 缓存，capacity 必须大于 0
+// NewCache creates a new LRU cache, capacity must be greater than 0.
 func NewCache[K comparable, V any](capacity int) *Cache[K, V] {
 	if capacity <= 0 {
 		panic("lru: capacity must be greater than 0")
@@ -35,7 +35,7 @@ func NewCache[K comparable, V any](capacity int) *Cache[K, V] {
 	}
 }
 
-// Get 从缓存中获取值，如果存在则返回值和 true，否则返回零值和 false
+// Get gets the value from the cache, if it exists, returns the value and true, otherwise returns zero value and false.
 func (c *Cache[K, V]) Get(key K) (value V, ok bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -46,36 +46,36 @@ func (c *Cache[K, V]) Get(key K) (value V, ok bool) {
 		return
 	}
 
-	// 将访问的元素移到链表头部（最近使用）
+	// Move the accessed element to the head of the list (most recently used).
 	c.ll.MoveToFront(el)
 	c.hits++
 	return el.Value.(*entry[K, V]).value, true
 }
 
-// Put 将值放入缓存
+// Put puts the value into the cache.
 func (c *Cache[K, V]) Put(key K, value V) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// 如果键已存在，更新值并移到链表头部
+	// If the key exists, update the value and move it to the head of the list.
 	if el, ok := c.cache[key]; ok {
 		el.Value.(*entry[K, V]).value = value
 		c.ll.MoveToFront(el)
 		return
 	}
 
-	// 创建新条目并添加到链表头部
+	// Create a new entry and add it to the head of the list.
 	newEntry := &entry[K, V]{key, value}
 	element := c.ll.PushFront(newEntry)
 	c.cache[key] = element
 
-	// 如果超过容量，移除链表尾部（最久未使用）的元素
+	// If the capacity is exceeded, remove the element at the tail of the list (least recently used).
 	if c.ll.Len() > c.capacity {
 		c.removeOldest()
 	}
 }
 
-// removeOldest 移除最久未使用的元素
+// removeOldest removes the least recently used element.
 func (c *Cache[K, V]) removeOldest() {
 	el := c.ll.Back()
 	if el == nil {
@@ -87,19 +87,19 @@ func (c *Cache[K, V]) removeOldest() {
 	delete(c.cache, kv.key)
 }
 
-// Len 返回当前缓存中的元素数量
+// Len returns the number of elements in the cache.
 func (c *Cache[K, V]) Len() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.ll.Len()
 }
 
-// Capacity 返回缓存的容量
+// Capacity returns the capacity of the cache.
 func (c *Cache[K, V]) Capacity() int {
 	return c.capacity
 }
 
-// Clear 清空缓存
+// Clear clears the cache.
 func (c *Cache[K, V]) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
