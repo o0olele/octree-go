@@ -2,13 +2,14 @@ package query
 
 import "sync"
 
-// 堆数据结构用于A*算法
+// heapNode is the data structure for the A* algorithm
 type heapNode struct {
 	nodeID int32
 	fScore float32
 	index  int
 }
 
+// nodeHeap is the heap for the A* algorithm
 type nodeHeap []*heapNode
 
 func (h nodeHeap) Len() int           { return len(h) }
@@ -19,6 +20,7 @@ func (h nodeHeap) Swap(i, j int) {
 	h[j].index = j
 }
 
+// Push pushes a new node to the heap
 func (h *nodeHeap) Push(x interface{}) {
 	n := len(*h)
 	item := x.(*heapNode)
@@ -26,6 +28,7 @@ func (h *nodeHeap) Push(x interface{}) {
 	*h = append(*h, item)
 }
 
+// Pop pops a node from the heap
 func (h *nodeHeap) Pop() interface{} {
 	old := *h
 	n := len(old)
@@ -36,6 +39,7 @@ func (h *nodeHeap) Pop() interface{} {
 	return item
 }
 
+// Clear clears the heap
 func (h *nodeHeap) Clear() {
 	for _, node := range *h {
 		heapNodePool.Put(node)
@@ -43,6 +47,7 @@ func (h *nodeHeap) Clear() {
 	*h = (*h)[:0]
 }
 
+// heapNodePool is the pool for the heap
 var heapNodePool = sync.Pool{
 	New: func() interface{} {
 		return &heapNode{
@@ -53,6 +58,7 @@ var heapNodePool = sync.Pool{
 	},
 }
 
+// newHeapNode creates a new heap node
 func newHeapNode(nodeID int32, fScore float32) *heapNode {
 	node := heapNodePool.Get().(*heapNode)
 	node.nodeID = nodeID

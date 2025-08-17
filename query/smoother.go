@@ -8,12 +8,16 @@ import (
 	"github.com/o0olele/octree-go/octree"
 )
 
-// optimizePathWithLineOfSight 使用视线优化算法简化路径
+// SmoothPath smooths the path
 func (nq *NavigationQuery) SmoothPath(pathNodes []*octree.PathNode) []math32.Vector3 {
 
+	// Using cross point
 	if nq.pathPreferences.UsingCrossPoint {
 		return nq.optimizePathWithLineOfSight(nq.getCrossingPath(pathNodes))
-	} else if nq.pathPreferences.UsingDouglasPeucker {
+	}
+
+	// Using Douglas-Peucker
+	if nq.pathPreferences.UsingDouglasPeucker {
 		return nq.optimizePathWithLineOfSight(nq.douglasPeucker(nq.getCenterPath(pathNodes), 0.2))
 	}
 
@@ -30,7 +34,7 @@ func (nq *NavigationQuery) SmoothPath(pathNodes []*octree.PathNode) []math32.Vec
 
 	navData := nq.navData
 	for current < len(pathNodes)-1 {
-		// 使用二分搜索找到最远可视节点，减少检测次数
+		// Using binary search to find the farthest visible node, reducing the number of checks
 		low := current + 1
 		high := len(pathNodes) - 1
 		farthest := current + 1
@@ -51,6 +55,7 @@ func (nq *NavigationQuery) SmoothPath(pathNodes []*octree.PathNode) []math32.Vec
 	return smoothed
 }
 
+// getCenterPath gets the center path
 func (nq *NavigationQuery) getCenterPath(pathNodes []*octree.PathNode) []math32.Vector3 {
 	result := make([]math32.Vector3, len(pathNodes))
 	for i, node := range pathNodes {
@@ -59,7 +64,7 @@ func (nq *NavigationQuery) getCenterPath(pathNodes []*octree.PathNode) []math32.
 	return result
 }
 
-// optimizePathWithLineOfSight 使用视线优化算法简化路径
+// optimizePathWithLineOfSight smooths the path with line of sight
 func (nq *NavigationQuery) optimizePathWithLineOfSight(pathNodes []math32.Vector3) []math32.Vector3 {
 	if len(pathNodes) <= 2 {
 		return pathNodes
@@ -70,7 +75,7 @@ func (nq *NavigationQuery) optimizePathWithLineOfSight(pathNodes []math32.Vector
 
 	navData := nq.navData
 	for current < len(pathNodes)-1 {
-		// 二分搜索最远可直达点，降低调用次数
+		// Using binary search to find the farthest reachable node, reducing the number of checks
 		low := current + 1
 		high := len(pathNodes) - 1
 		farthest := current + 1
@@ -91,7 +96,7 @@ func (nq *NavigationQuery) optimizePathWithLineOfSight(pathNodes []math32.Vector
 	return smoothed
 }
 
-// convertToWorldPath 将节点路径转换为世界坐标路径，使用边界穿越点替代中心点
+// getCrossingPath converts the node path to the world coordinate path, using the boundary crossing point instead of the center point
 func (nq *NavigationQuery) getCrossingPath(nodePath []*octree.PathNode) []math32.Vector3 {
 	if len(nodePath) == 0 {
 		return []math32.Vector3{}
@@ -99,109 +104,109 @@ func (nq *NavigationQuery) getCrossingPath(nodePath []*octree.PathNode) []math32
 
 	var path []math32.Vector3
 
-	// 1. 添加起点
+	// 1. Add the start point
 	path = append(path, nodePath[0].Center)
 
-	// 2. 如果只有一个节点，直接连接起点到终点
+	// 2. If there is only one node, directly connect the start point to the end point
 	if len(nodePath) <= 3 {
 		path = append(path, nodePath[1].Center)
 		path = append(path, nodePath[2].Center)
 		return path
 	}
 
-	// 3. 处理中间节点间的边界穿越点
+	// 3. Process the boundary crossing points between the intermediate nodes
 	for i := 1; i < len(nodePath)-2; i++ {
 		node1 := nodePath[i]
 		node2 := nodePath[i+1]
 
-		// 计算两个节点之间的边界穿越点
+		// Calculate the boundary crossing point between the two nodes
 		crossingPoint := nq.calculateCrossingPoint(node1, node2)
 		path = append(path, crossingPoint)
 	}
 
-	// 4. 添加终点
+	// 4. Add the end point
 	path = append(path, nodePath[len(nodePath)-1].Center)
 
 	return path
 }
 
-// calculateCrossingPoint 计算两个相邻节点之间的边界穿越点
+// calculateCrossingPoint calculates the boundary crossing point between the two adjacent nodes
 func (nq *NavigationQuery) calculateCrossingPoint(node1, node2 *octree.PathNode) math32.Vector3 {
-	// 确定共享的边界平面
+	// Determine the shared boundary plane
 	planeAxis := -1 // 0=X, 1=Y, 2=Z
 	planePos := float32(0.0)
 
-	if floatEqual(node1.Bounds.Max.X, node2.Bounds.Min.X) { // 检查x方向
+	if floatEqual(node1.Bounds.Max.X, node2.Bounds.Min.X) { // Check the x direction
 		planeAxis = 0
 		planePos = node1.Bounds.Max.X
 	} else if floatEqual(node1.Bounds.Min.X, node2.Bounds.Max.X) {
 		planeAxis = 0
 		planePos = node1.Bounds.Min.X
-	} else if floatEqual(node1.Bounds.Max.Y, node2.Bounds.Min.Y) { // 检查y方向
+	} else if floatEqual(node1.Bounds.Max.Y, node2.Bounds.Min.Y) { // Check the y direction
 		planeAxis = 1
 		planePos = node1.Bounds.Max.Y
 	} else if floatEqual(node1.Bounds.Min.Y, node2.Bounds.Max.Y) {
 		planeAxis = 1
 		planePos = node1.Bounds.Min.Y
-	} else if floatEqual(node1.Bounds.Max.Z, node2.Bounds.Min.Z) { // 检查z方向
+	} else if floatEqual(node1.Bounds.Max.Z, node2.Bounds.Min.Z) { // Check the z direction
 		planeAxis = 2
 		planePos = node1.Bounds.Max.Z
 	} else if floatEqual(node1.Bounds.Min.Z, node2.Bounds.Max.Z) {
 		planeAxis = 2
 		planePos = node1.Bounds.Min.Z
 	} else {
-		// 如果没有找到共享平面，可能是错误，返回node1.Center作为默认
-		fmt.Println("没有找到共享平面", node1.Center, node2.Center)
+		// If no shared plane is found, it may be an error, return node1.Center as the default
+		fmt.Println("No shared plane found", node1.Center, node2.Center)
 		return node1.Center
 	}
 
-	// 计算从node1.Center到node2.Center的射线与平面的交点
+	// Calculate the intersection of the ray from node1.Center to node2.Center with the plane
 	dir := node2.Center.Sub(node1.Center)
 
 	var t float32
 	switch planeAxis {
-	case 0: // X平面
+	case 0: // X plane
 		if math32.Abs(dir.X) < 1e-6 {
-			// 避免除以零
+			// Avoid division by zero
 			return node1.Center
 		}
 		t = (planePos - node1.Center.X) / dir.X
-	case 1: // Y平面
+	case 1: // Y plane
 		if math32.Abs(dir.Y) < 1e-6 {
 			return node1.Center
 		}
 		t = (planePos - node1.Center.Y) / dir.Y
-	case 2: // Z平面
+	case 2: // Z plane
 		if math32.Abs(dir.Z) < 1e-6 {
 			return node1.Center
 		}
 		t = (planePos - node1.Center.Z) / dir.Z
 	}
 
-	// 确保t在[0,1]范围内
+	// Ensure t is within the range [0,1]
 	if t < 0 {
 		t = 0
 	} else if t > 1 {
 		t = 1
 	}
 
-	// 计算交点
+	// Calculate the intersection point
 	point := node1.Center.Add(dir.Mul(t))
 
-	// 检查交点是否在两个节点的实际共享区域内（处理不同大小节点的情况）
+	// Check if the intersection point is within the actual shared area of the two nodes (handling different node sizes)
 	switch planeAxis {
-	case 0: // X平面，检查Y和Z范围
+	case 0: // X plane, check the Y and Z ranges
 		minY := math32.Max(node1.Bounds.Min.Y, node2.Bounds.Min.Y)
 		maxY := math32.Min(node1.Bounds.Max.Y, node2.Bounds.Max.Y)
 		minZ := math32.Max(node1.Bounds.Min.Z, node2.Bounds.Min.Z)
 		maxZ := math32.Min(node1.Bounds.Max.Z, node2.Bounds.Max.Z)
 
 		if point.Y < minY || point.Y > maxY || point.Z < minZ || point.Z > maxZ {
-			// 交点不在共享区域内，调整到最近的有效位置
+			// The intersection point is not within the shared area, adjust to the nearest valid position
 			point.Y = clamp(point.Y, minY, maxY)
 			point.Z = clamp(point.Z, minZ, maxZ)
 		}
-	case 1: // Y平面，检查X和Z范围
+	case 1: // Y plane, check the X and Z ranges
 		minX := math32.Max(node1.Bounds.Min.X, node2.Bounds.Min.X)
 		maxX := math32.Min(node1.Bounds.Max.X, node2.Bounds.Max.X)
 		minZ := math32.Max(node1.Bounds.Min.Z, node2.Bounds.Min.Z)
@@ -211,7 +216,7 @@ func (nq *NavigationQuery) calculateCrossingPoint(node1, node2 *octree.PathNode)
 			point.X = clamp(point.X, minX, maxX)
 			point.Z = clamp(point.Z, minZ, maxZ)
 		}
-	case 2: // Z平面，检查X和Y范围
+	case 2: // Z plane, check the X and Y ranges
 		minX := math32.Max(node1.Bounds.Min.X, node2.Bounds.Min.X)
 		maxX := math32.Min(node1.Bounds.Max.X, node2.Bounds.Max.X)
 		minY := math32.Max(node1.Bounds.Min.Y, node2.Bounds.Min.Y)
@@ -226,12 +231,12 @@ func (nq *NavigationQuery) calculateCrossingPoint(node1, node2 *octree.PathNode)
 	return point
 }
 
-// floatEqual 浮点数比较（考虑精度问题）
+// floatEqual compares two float32 values (considering precision issues)
 func floatEqual(a, b float32) bool {
 	return math32.Abs(a-b) < 1e-6
 }
 
-// clamp 将值限制在[min, max]范围内
+// clamp limits the value within the range [min, max]
 func clamp(value, min, max float32) float32 {
 	if value < min {
 		return min
@@ -242,13 +247,14 @@ func clamp(value, min, max float32) float32 {
 	return value
 }
 
+// douglasPeucker smooths the path with Douglas-Peucker algorithm
 func (nq *NavigationQuery) douglasPeucker(points []math32.Vector3, epsilon float32) []math32.Vector3 {
 	n := len(points)
 	if n <= 2 {
 		return points
 	}
 
-	// 迭代版本，避免深度递归导致的栈溢出
+	// Iterative version, avoiding stack overflow caused by deep recursion
 	keep := make([]bool, n)
 	keep[0] = true
 	keep[n-1] = true
@@ -266,7 +272,7 @@ func (nq *NavigationQuery) douglasPeucker(points []math32.Vector3, epsilon float
 			continue
 		}
 
-		// 找到距离首尾连线最远的点
+		// Find the point farthest from the line segment connecting the start and end
 		var maxDist float32
 		maxIdx := -1
 		for i := s + 1; i < e; i++ {
@@ -277,20 +283,20 @@ func (nq *NavigationQuery) douglasPeucker(points []math32.Vector3, epsilon float
 			}
 		}
 
-		// 折线简化判定：距离阈值 + 视线可达
+		// Line simplification judgment: distance threshold + line of sight reachable
 		if maxDist < epsilon && nq.navData.IsPathClear(nq.agent, points[s], points[e]) {
-			// 保留端点，丢弃中间点
+			// Keep the endpoints, discard the intermediate points
 			continue
 		}
 
 		if maxIdx != -1 {
 			keep[maxIdx] = true
-			// 分裂为两段，入栈继续处理
+			// Split into two segments, push to the stack for further processing
 			stack = append(stack, segment{s, maxIdx}, segment{maxIdx, e})
 		}
 	}
 
-	// 输出保留的点（保持顺序）
+	// Output the retained points (keeping the order)
 	result := make([]math32.Vector3, 0, n)
 	for i := 0; i < n; i++ {
 		if keep[i] {
