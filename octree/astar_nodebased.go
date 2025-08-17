@@ -13,30 +13,30 @@ import (
 	"github.com/o0olele/octree-go/math32"
 )
 
-// NodeBasedAStarPathfinder 基于节点的A*寻路器
+// NodeBasedAStarPathfinder is a node-based A* pathfinder.
 type NodeBasedAStarPathfinder struct {
 	octree   *Octree
 	agent    *Agent
 	stepSize float32
 	graph    *PathGraph
 
-	// Morton编码优化
+	// Morton code optimization
 	mortonSortedNodes []MortonNodePair
 	mortonResolution  uint32
 }
 
-// MortonNodePair Morton编码和节点的配对
+// MortonNodePair is a pair of Morton code and node.
 type MortonNodePair struct {
 	Morton MortonCode
 	Node   *PathNode
 }
 
-// NewNodeBasedAStarPathfinder 创建基于节点的A*寻路器
+// NewNodeBasedAStarPathfinder creates a node-based A* pathfinder.
 func NewNodeBasedAStarPathfinder(octree *Octree, stepSize float32) *NodeBasedAStarPathfinder {
 	return NewNodeBasedAStarPathfinderWithParallel(octree, nil, stepSize, false)
 }
 
-// NewNodeBasedAStarPathfinderWithParallel 创建基于节点的A*寻路器，可选择是否使用并行构建
+// NewNodeBasedAStarPathfinderWithParallel creates a node-based A* pathfinder, optionally using parallel construction.
 func NewNodeBasedAStarPathfinderWithParallel(octree *Octree, agent *Agent, stepSize float32, useParallel bool) *NodeBasedAStarPathfinder {
 
 	pathfinder := &NodeBasedAStarPathfinder{
@@ -44,43 +44,44 @@ func NewNodeBasedAStarPathfinderWithParallel(octree *Octree, agent *Agent, stepS
 		agent:            agent,
 		stepSize:         stepSize,
 		graph:            NewPathGraph(),
-		mortonResolution: 1024, // 10位精度
+		mortonResolution: 1024, // 10-bit precision
 	}
 
-	// 构建寻路图
+	// Build the path graph
 	pathfinder.buildGraphWithMode(useParallel)
 
-	// 构建Morton索引
+	// Build the Morton index
 	pathfinder.buildMortonIndex()
 
 	return pathfinder
 }
 
+// GetGraph returns the path graph.
 func (nba *NodeBasedAStarPathfinder) GetGraph() *PathGraph {
 	return nba.graph
 }
 
-// BuildGraph 构建寻路图
+// BuildGraph builds the path graph.
 func (nba *NodeBasedAStarPathfinder) BuildGraph() {
-	nba.buildGraphWithMode(false) // 默认使用串行版本
+	nba.buildGraphWithMode(false) // Default to using the serial version
 }
 
-// BuildGraphParallel 使用并行版本构建寻路图
+// BuildGraphParallel builds the path graph using the parallel version.
 func (nba *NodeBasedAStarPathfinder) BuildGraphParallel() {
-	nba.buildGraphWithMode(true) // 使用并行版本
+	nba.buildGraphWithMode(true) // Use the parallel version
 }
 
-// buildGraphWithMode 构建寻路图，可选择串行或并行模式
+// buildGraphWithMode builds the path graph, optionally using the serial or parallel version.
 func (nba *NodeBasedAStarPathfinder) buildGraphWithMode(useParallel bool) {
-	// 收集所有空白叶子节点
+	// Collect all empty leaves
 	emptyLeaves := nba.collectEmptyLeaves(nba.octree.Root)
 
-	// 为每个空白叶子节点创建寻路节点
+	// Create a path node for each empty leaf
 	for _, leaf := range emptyLeaves {
 		nba.graph.AddNode(leaf)
 	}
 
-	// 建立相邻节点之间的连接
+	// Build connections between adjacent nodes
 	beginTime := time.Now()
 	if useParallel {
 		nba.buildConnectionsParallel(emptyLeaves)
@@ -89,15 +90,15 @@ func (nba *NodeBasedAStarPathfinder) buildGraphWithMode(useParallel bool) {
 	}
 	runtime.GC()
 	runtime.Gosched()
-	fmt.Printf("PathGraph建立连接: 耗时 %s\n", time.Since(beginTime))
+	fmt.Printf("PathGraph build connections: %s\n", time.Since(beginTime))
 }
 
-// collectEmptyLeaves 收集所有空白的叶子节点
+// collectEmptyLeaves collects all empty leaves.
 func (nba *NodeBasedAStarPathfinder) collectEmptyLeaves(node *OctreeNode) []*OctreeNode {
 	var emptyLeaves []*OctreeNode
 
 	if node.IsLeaf() {
-		// 检查叶子节点是否为空（没有被占用）
+		// Check if the leaf node is empty (not occupied)
 		if !node.IsOccupied() {
 			hit, _, _, _ := nba.octree.Raycast(node.Bounds.Center(), math32.Vector3{X: 0, Y: 1, Z: 0}, nba.agent.Height)
 			if !hit {
@@ -107,7 +108,7 @@ func (nba *NodeBasedAStarPathfinder) collectEmptyLeaves(node *OctreeNode) []*Oct
 		return emptyLeaves
 	}
 
-	// 递归检查子节点
+	// Recursively check child nodes
 	for _, child := range node.Children {
 		if child != nil {
 			childLeaves := nba.collectEmptyLeaves(child)
@@ -118,7 +119,7 @@ func (nba *NodeBasedAStarPathfinder) collectEmptyLeaves(node *OctreeNode) []*Oct
 	return emptyLeaves
 }
 
-// buildConnections 建立节点之间的连接
+// buildConnections builds connections between nodes.
 func (nba *NodeBasedAStarPathfinder) buildConnections(nodes []*OctreeNode) {
 	totalConnections := 0
 	totalChecks := 0
@@ -131,7 +132,7 @@ func (nba *NodeBasedAStarPathfinder) buildConnections(nodes []*OctreeNode) {
 			pathNodeB := nba.graph.Nodes[nodeB]
 			totalChecks++
 
-			// 检查两个节点是否相邻（边界相交或接触）
+			// Check if the two nodes are adjacent (boundary intersects or touches)
 			if nba.areNodesAdjacent(nodeA, nodeB) {
 				nba.graph.AddEdge(pathNodeA, pathNodeB)
 				totalConnections++
@@ -139,53 +140,53 @@ func (nba *NodeBasedAStarPathfinder) buildConnections(nodes []*OctreeNode) {
 		}
 	}
 
-	// 输出调试信息
-	fmt.Printf("PathGraph建立连接: 检查了 %d 对节点, 建立了 %d 个连接\n", totalChecks, totalConnections)
-	fmt.Printf("节点总数: %d, 边总数: %d\n", len(nba.graph.Nodes), len(nba.graph.Edges))
+	// Output debug information
+	fmt.Printf("PathGraph build connections: checked %d pairs, built %d connections\n", totalChecks, totalConnections)
+	fmt.Printf("Node count: %d, Edge count: %d\n", len(nba.graph.Nodes), len(nba.graph.Edges))
 }
 
-// buildConnectionsParallel 并行版本的建立节点之间的连接（智能版本）
+// buildConnectionsParallel builds connections between nodes using the parallel version.
 func (nba *NodeBasedAStarPathfinder) buildConnectionsParallel(nodes []*OctreeNode) {
 	totalNodes := len(nodes)
 
 	if totalNodes <= 1 {
-		fmt.Printf("PathGraph建立连接: 节点数量不足，无需建立连接\n")
+		fmt.Printf("PathGraph build connections: node count is less than 1, no connections need to be built\n")
 		return
 	}
 
-	// 计算总的节点对数量
+	// Calculate the total number of node pairs
 	totalPairs := (totalNodes * (totalNodes - 1)) / 2
 
-	// 智能决策：如果节点对数量太少，直接使用串行版本
-	const PARALLEL_THRESHOLD = 1000 // 小于1000个节点对时使用串行
+	// Smart decision: if the number of node pairs is too few, use the serial version
+	const PARALLEL_THRESHOLD = 1000 // Use serial version if the number of node pairs is less than 1000
 	if totalPairs < PARALLEL_THRESHOLD {
-		fmt.Printf("PathGraph建立连接: 节点对数量(%d)较少，使用串行版本\n", totalPairs)
+		fmt.Printf("PathGraph build connections: node pair count (%d) is less than 1000, use serial version\n", totalPairs)
 		nba.buildConnections(nodes)
 		return
 	}
 
 	numWorkers := runtime.NumCPU()
 
-	// 对于大数据集，限制worker数量以减少竞争
+	// For large datasets, limit the number of workers to reduce competition
 	if totalPairs < 10000 {
-		numWorkers = min(numWorkers, 4) // 最多4个worker
+		numWorkers = min(numWorkers, 4) // Maximum 4 workers
 	}
 
-	fmt.Printf("PathGraph建立连接: 节点对数量(%d)较多，使用并行版本(workers: %d)\n", totalPairs, numWorkers)
+	fmt.Printf("PathGraph build connections: node pair count (%d) is more than 10000, use parallel version (workers: %d)\n", totalPairs, numWorkers)
 
-	// 使用批量处理减少原子操作
-	batchSize := max(totalPairs/(numWorkers*4), 50) // 每个批次至少50个
+	// Use batch processing to reduce atomic operations
+	batchSize := max(totalPairs/(numWorkers*4), 50) // At least 50 per batch
 
 	totalConnections := int64(0)
 	totalChecks := int64(0)
 
-	// 使用切片存储结果，避免动态分配
+	// Use a slice to store results, avoiding dynamic allocation
 	type EdgeResult struct {
 		pathNodeA *PathNode
 		pathNodeB *PathNode
 	}
 
-	// 每个worker有自己的结果切片
+	// Each worker has its own result slice
 	workerResults := make([][]EdgeResult, numWorkers)
 	for i := range workerResults {
 		workerResults[i] = make([]EdgeResult, 0, totalPairs/numWorkers+100)
@@ -203,7 +204,7 @@ func (nba *NodeBasedAStarPathfinder) buildConnectionsParallel(nodes []*OctreeNod
 			localChecks := int64(0)
 
 			for {
-				// 批量获取工作，减少原子操作频率
+				// Batch get work, reduce atomic operation frequency
 				startIdx := atomic.AddInt64(&currentPair, int64(batchSize)) - int64(batchSize)
 				endIdx := startIdx + int64(batchSize)
 				if endIdx > int64(totalPairs) {
@@ -214,9 +215,9 @@ func (nba *NodeBasedAStarPathfinder) buildConnectionsParallel(nodes []*OctreeNod
 					break
 				}
 
-				// 处理这个批次
+				// Process this batch
 				for pairIdx := startIdx; pairIdx < endIdx; pairIdx++ {
-					// 将线性索引转换为(i,j)
+					// Convert linear index to (i,j)
 					i, j := nba.pairIndexToIJ(int(pairIdx), totalNodes)
 					if i >= j || i >= totalNodes || j >= totalNodes {
 						continue
@@ -226,7 +227,7 @@ func (nba *NodeBasedAStarPathfinder) buildConnectionsParallel(nodes []*OctreeNod
 					nodeB := nodes[j]
 					localChecks++
 
-					// 检查两个节点是否相邻
+					// Check if the two nodes are adjacent
 					if nba.areNodesAdjacent(nodeA, nodeB) {
 						pathNodeA := nba.graph.Nodes[nodeA]
 						pathNodeB := nba.graph.Nodes[nodeB]
@@ -240,16 +241,16 @@ func (nba *NodeBasedAStarPathfinder) buildConnectionsParallel(nodes []*OctreeNod
 				}
 			}
 
-			// 更新全局计数器
+			// Update the global counter
 			atomic.AddInt64(&totalConnections, localConnections)
 			atomic.AddInt64(&totalChecks, localChecks)
 		}(workerID)
 	}
 
-	// 等待所有worker完成
+	// Wait for all workers to complete
 	wg.Wait()
 
-	// 在主线程中添加所有边
+	// Add all edges in the main thread
 	finalConnections := 0
 	for _, results := range workerResults {
 		for _, edge := range results {
@@ -258,21 +259,21 @@ func (nba *NodeBasedAStarPathfinder) buildConnectionsParallel(nodes []*OctreeNod
 		}
 	}
 
-	// 输出调试信息
-	fmt.Printf("PathGraph并行建立连接: 检查了 %d 对节点, 建立了 %d 个连接 (使用 %d 个工作线程)\n",
+	// Output debug information
+	fmt.Printf("PathGraph build connections: checked %d pairs, built %d connections (using %d workers)\n",
 		totalChecks, totalConnections, numWorkers)
-	fmt.Printf("节点总数: %d, 边总数: %d\n", len(nba.graph.Nodes), len(nba.graph.Edges))
+	fmt.Printf("Node count: %d, Edge count: %d\n", len(nba.graph.Nodes), len(nba.graph.Edges))
 }
 
-// pairIndexToIJ 将线性配对索引转换为(i,j)坐标
+// pairIndexToIJ converts a linear pairing index to (i,j) coordinates
 func (nba *NodeBasedAStarPathfinder) pairIndexToIJ(pairIndex, n int) (int, int) {
-	// 使用数学公式直接计算
+	// Use the mathematical formula directly
 	i := int((2*float64(n) - 1 - math.Sqrt(float64((2*n-1)*(2*n-1)-8*pairIndex))) / 2)
 	j := pairIndex - i*(2*n-i-1)/2 + i + 1
 	return i, j
 }
 
-// min 返回两个int中的较小值
+// min returns the smaller of two ints
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -280,7 +281,7 @@ func min(a, b int) int {
 	return b
 }
 
-// max 返回两个int中的较大值
+// max returns the larger of two ints
 func max(a, b int) int {
 	if a > b {
 		return a
@@ -288,41 +289,41 @@ func max(a, b int) int {
 	return b
 }
 
-// areNodesAdjacent 检查两个节点是否相邻且连通
+// areNodesAdjacent checks if two nodes are adjacent and connected
 func (nba *NodeBasedAStarPathfinder) areNodesAdjacent(nodeA, nodeB *OctreeNode) bool {
-	// 检查边界是否相交或接触
+	// Check if the boundaries intersect or touch
 	boundsA := nodeA.Bounds
 	boundsB := nodeB.Bounds
 
-	// 计算两个节点中心之间的距离
+	// Calculate the distance between the centers of the two nodes
 	centerA := boundsA.Center()
 	centerB := boundsB.Center()
 	distance := centerA.Distance(centerB)
 
-	// 计算两个节点的最大尺寸
+	// Calculate the maximum size of the two nodes
 	sizeA := boundsA.Size()
 	sizeB := boundsB.Size()
 	maxSizeA := math32.Max(math32.Max(sizeA.X, sizeA.Y), sizeA.Z)
 	maxSizeB := math32.Max(math32.Max(sizeB.X, sizeB.Y), sizeB.Z)
 
-	// 放宽距离阈值检查 - 允许更多的相邻节点连接
-	threshold := (maxSizeA + maxSizeB) * 0.6 // 放宽阈值从0.6到0.8
+	// Relax the distance threshold check - allow more adjacent node connections
+	threshold := (maxSizeA + maxSizeB) * 0.6 // Relax the threshold from 0.6 to 0.8
 	if distance > threshold {
 		return false
 	}
 
-	// 更宽松的边界检查
+	// More relaxed boundary check
 	if !boundsA.Intersects(boundsB) {
-		// 计算两个边界框之间的最小距离
+		// Calculate the minimum distance between the two bounding boxes
 		minDistance := nba.calculateAABBDistance(boundsA, boundsB)
-		// 允许小的间隙，特别是对于不同大小的节点
-		allowedGap := math32.Min(maxSizeA, maxSizeB) * 0.2 // 增加允许的间隙
+		// Allow small gaps, especially for nodes of different sizes
+		allowedGap := math32.Min(maxSizeA, maxSizeB) * 0.2 // Increase the allowed gap
 		if minDistance > allowedGap {
 			return false
 		}
 	}
 
-	// 路径清晰度检查 - 使用更宽松的采样
+	// Path clarity check - use more relaxed sampling
 	if !nba.isPathClearRelaxed(centerA, centerB) {
 		return false
 	}
@@ -330,14 +331,14 @@ func (nba *NodeBasedAStarPathfinder) areNodesAdjacent(nodeA, nodeB *OctreeNode) 
 	return true
 }
 
-// calculateAABBDistance 计算两个AABB之间的最小距离
+// calculateAABBDistance calculates the minimum distance between two AABBs
 func (nba *NodeBasedAStarPathfinder) calculateAABBDistance(aabb1, aabb2 geometry.AABB) float32 {
-	// 如果相交，距离为0
+	// If they intersect, the distance is 0
 	if aabb1.Intersects(aabb2) {
 		return 0.0
 	}
 
-	// 计算每个轴上的距离
+	// Calculate the distance on each axis
 	dx := math32.Max(0, math32.Max(aabb1.Min.X-aabb2.Max.X, aabb2.Min.X-aabb1.Max.X))
 	dy := math32.Max(0, math32.Max(aabb1.Min.Y-aabb2.Max.Y, aabb2.Min.Y-aabb1.Max.Y))
 	dz := math32.Max(0, math32.Max(aabb1.Min.Z-aabb2.Max.Z, aabb2.Min.Z-aabb1.Max.Z))
@@ -345,48 +346,48 @@ func (nba *NodeBasedAStarPathfinder) calculateAABBDistance(aabb1, aabb2 geometry
 	return math32.Sqrt(dx*dx + dy*dy + dz*dz)
 }
 
-// isPathClearRelaxed 使用更宽松的参数检查路径是否畅通
+// isPathClearRelaxed uses more relaxed parameters to check if the path is clear
 func (nba *NodeBasedAStarPathfinder) isPathClearRelaxed(start, end math32.Vector3) bool {
-	// 计算方向向量和距离
+	// Calculate the direction vector and distance
 	direction := end.Sub(start)
 	distance := direction.Length()
 
-	if distance < 0.001 { // 距离太近，认为是同一点
+	if distance < 0.001 { // The distance is too close, considered the same point
 		return true
 	}
 
-	// 标准化方向向量
+	// Normalize the direction vector
 	direction = direction.Scale(1.0 / distance)
 
 	if hit, _, _, _ := nba.octree.Raycast(start, direction, distance); hit {
 		return false
 	}
 
-	// 使用较少的采样点，提高连通性
-	stepSize := math32.Min(nba.stepSize*0.5, 0.2) // 增加步长，减少采样密度
+	// Use fewer sampling points, improve connectivity
+	stepSize := math32.Min(nba.stepSize*0.5, 0.2) // Increase the step size, reduce sampling density
 	steps := math32.CeilToInt(distance / stepSize)
 
-	// 确保有合理的采样点数量
+	// Ensure there are a reasonable number of sampling points
 	if steps < 5 {
 		steps = 5
 	}
-	if steps > 20 { // 限制最大采样点数量
+	if steps > 20 { // Limit the maximum number of sampling points
 		steps = 20
 	}
 
-	// 沿着路径进行采样检测
+	// Sample along the path for detection
 	for i := 0; i <= steps; i++ {
 		t := float32(i) / float32(steps)
 		samplePoint := start.Add(direction.Scale(distance * t))
 
-		// 检查采样点是否被占用
+		// Check if the sampling point is occupied
 		if nba.octree.IsOccupied(samplePoint) {
 			return false
 		}
 
-		// 如果有Agent，还需要检查Agent碰撞，但使用稍微小一点的Agent
+		// If there is an Agent, check for Agent collisions, but use a slightly smaller Agent
 		if nba.agent != nil {
-			// // 创建一个稍微小一点的Agent进行检测，增加连通性
+			// // Create a slightly smaller Agent for detection, improve connectivity
 			// relaxedAgent := &Agent{
 			// 	Radius: nba.agent.Radius, // 减小10%
 			// 	Height: nba.agent.Height, // 减小10%
@@ -403,16 +404,16 @@ func (nba *NodeBasedAStarPathfinder) isPathClearRelaxed(start, end math32.Vector
 	return true
 }
 
-// getNodeMarginPoints 获取节点边界的采样点
+// GetNodeMarginPoints gets the sampling points of the node boundary
 func (nba *NodeBasedAStarPathfinder) GetNodeMarginPoints(bounds geometry.AABB) []math32.Vector3 {
 	center := bounds.Center()
 
-	// 在节点边界内生成采样点（避免边界上的点）
-	margin := float32(0.1) // 从边界内缩进一点
+	// Generate sampling points within the node boundary (avoid points on the boundary)
+	margin := float32(0.1) // Shrink the boundary by a small amount
 	points := []math32.Vector3{
-		// 中心点
+		// Center point
 		center,
-		// 8个角点的内缩版本
+		// 8 corner points
 		{X: bounds.Min.X + margin, Y: bounds.Min.Y + margin, Z: bounds.Min.Z + margin},
 		{X: bounds.Max.X - margin, Y: bounds.Min.Y + margin, Z: bounds.Min.Z + margin},
 		{X: bounds.Min.X + margin, Y: bounds.Max.Y - margin, Z: bounds.Min.Z + margin},
@@ -421,7 +422,7 @@ func (nba *NodeBasedAStarPathfinder) GetNodeMarginPoints(bounds geometry.AABB) [
 		{X: bounds.Max.X - margin, Y: bounds.Min.Y + margin, Z: bounds.Max.Z - margin},
 		{X: bounds.Min.X + margin, Y: bounds.Max.Y - margin, Z: bounds.Max.Z - margin},
 		{X: bounds.Max.X - margin, Y: bounds.Max.Y - margin, Z: bounds.Max.Z - margin},
-		// 6个面的中心点
+		// 6 face centers
 		{X: center.X, Y: center.Y, Z: bounds.Min.Z + margin},
 		{X: center.X, Y: center.Y, Z: bounds.Max.Z - margin},
 		{X: center.X, Y: bounds.Min.Y + margin, Z: center.Z},
@@ -433,27 +434,27 @@ func (nba *NodeBasedAStarPathfinder) GetNodeMarginPoints(bounds geometry.AABB) [
 	return points
 }
 
-// SetAgent 设置寻路Agent
+// SetAgent sets the pathfinding Agent
 func (nba *NodeBasedAStarPathfinder) SetAgent(agent *Agent) {
 	nba.agent = agent
 }
 
-// GetAgent 获取当前Agent
+// GetAgent gets the current Agent
 func (nba *NodeBasedAStarPathfinder) GetAgent() *Agent {
 	return nba.agent
 }
 
-// GetStepSize 获取步长
+// GetStepSize gets the step size
 func (nba *NodeBasedAStarPathfinder) GetStepSize() float32 {
 	return nba.stepSize
 }
 
-// SetStepSize 设置步长
+// SetStepSize sets the step size
 func (nba *NodeBasedAStarPathfinder) SetStepSize(stepSize float32) {
 	nba.stepSize = stepSize
 }
 
-// ToGridCoord 将Vector3转换为网格坐标（兼容接口）
+// ToGridCoord converts a Vector3 to grid coordinates (compatible interface)
 func (nba *NodeBasedAStarPathfinder) ToGridCoord(pos math32.Vector3) (int, int, int) {
 	origin := nba.octree.Root.Bounds.Min
 	return math32.RoundToInt((pos.X - origin.X) / nba.stepSize),
@@ -461,62 +462,62 @@ func (nba *NodeBasedAStarPathfinder) ToGridCoord(pos math32.Vector3) (int, int, 
 		math32.RoundToInt((pos.Z - origin.Z) / nba.stepSize)
 }
 
-// FindPath 使用基于节点的A*算法寻找路径
+// FindPath uses the node-based A* algorithm to find a path
 func (nba *NodeBasedAStarPathfinder) FindPath(start, end math32.Vector3) []math32.Vector3 {
-	// 找到起点和终点最近的空白节点
+	// Find the closest empty node to the start and end points
 	startTime := time.Now()
 	startNode := nba.findClosestNode(start)
 	endNode := nba.findClosestNode(end)
-	fmt.Printf("FindPath 时间: %v\n", time.Since(startTime))
+	fmt.Printf("FindPath time: %v\n", time.Since(startTime))
 
 	if startNode == nil || endNode == nil {
 		return nil
 	}
 
-	// 如果起点和终点在同一个节点中
+	// If the start and end points are in the same node
 	if startNode == endNode {
 		return []math32.Vector3{start, end}
 	}
 
-	// 运行A*算法
+	// Run the A* algorithm
 	startTime = time.Now()
 	path := nba.astar(startNode, endNode)
-	fmt.Printf("Astar 时间: %v\n", time.Since(startTime))
+	fmt.Printf("Astar time: %v\n", time.Since(startTime))
 	if path == nil {
 		return nil
 	}
 
 	startTime = time.Now()
-	// 将节点路径转换为世界坐标路径
+	// Convert the node path to a world coordinate path
 	worldPath := nba.convertToWorldPath(path, start, end)
-	fmt.Printf("ConvertToWorldPath 时间: %v\n", time.Since(startTime))
+	fmt.Printf("ConvertToWorldPath time: %v\n", time.Since(startTime))
 	return worldPath
 }
 
-// findClosestNode 找到最接近给定位置的空白节点
+// findClosestNode finds the closest empty node to the given position
 func (nba *NodeBasedAStarPathfinder) findClosestNode(pos math32.Vector3) *PathNode {
-	// 首先尝试直接找到包含该位置的节点
+	// First try to find the node containing the position directly
 	containingNode := nba.findContainingNode(pos)
 	if containingNode != nil {
 		return containingNode
 	}
 
-	// 使用Morton编码优化的空间查询
+	// Use Morton code optimized spatial query
 	if len(nba.mortonSortedNodes) > 0 {
 		return nba.findClosestNodeMorton(pos)
 	}
 
-	// 回退到原始方法
+	// Fall back to the original method
 	return nba.findClosestNodeSpatial(pos)
 }
 
-// findContainingNode 找到包含给定位置的节点
+// findContainingNode finds the node containing the given position
 func (nba *NodeBasedAStarPathfinder) findContainingNode(pos math32.Vector3) *PathNode {
-	// 从根节点开始搜索
+	// Start searching from the root node
 	octreeNode := nba.findContainingOctreeNode(nba.octree.Root, pos)
 	if octreeNode != nil {
 		if pathNode, exists := nba.graph.Nodes[octreeNode]; exists {
-			// 如果有Agent，检查Agent是否能放置在这个位置
+			// If there is an Agent, check if the Agent can be placed at this position
 			if nba.agent != nil && nba.octree.IsAgentOccupied(nba.agent, pos) {
 				return nil
 			}
@@ -526,7 +527,7 @@ func (nba *NodeBasedAStarPathfinder) findContainingNode(pos math32.Vector3) *Pat
 	return nil
 }
 
-// findContainingOctreeNode 在八叉树中找到包含位置的叶子节点
+// findContainingOctreeNode finds the leaf node containing the position in the octree
 func (nba *NodeBasedAStarPathfinder) findContainingOctreeNode(node *OctreeNode, pos math32.Vector3) *OctreeNode {
 	if node == nil || !node.Bounds.Contains(pos) {
 		return nil
@@ -539,7 +540,7 @@ func (nba *NodeBasedAStarPathfinder) findContainingOctreeNode(node *OctreeNode, 
 		return nil
 	}
 
-	// 递归搜索子节点
+	// Recursively search child nodes
 	for _, child := range node.Children {
 		if child != nil {
 			result := nba.findContainingOctreeNode(child, pos)
@@ -552,18 +553,18 @@ func (nba *NodeBasedAStarPathfinder) findContainingOctreeNode(node *OctreeNode, 
 	return nil
 }
 
-// findClosestNodeSpatial 使用空间查询找到最近的节点
+// findClosestNodeSpatial uses spatial query to find the closest node
 func (nba *NodeBasedAStarPathfinder) findClosestNodeSpatial(pos math32.Vector3) *PathNode {
 	var closestNode *PathNode
 	minDistance := math32.MaxFloat32
 
-	// 使用广度优先搜索，从最可能的区域开始
-	candidates := nba.getSpatialCandidates(pos, 10) // 获取最近的10个候选节点
+	// Use breadth-first search, starting from the most likely area
+	candidates := nba.getSpatialCandidates(pos, 10) // Get the 10 closest candidate nodes
 
 	for _, node := range candidates {
 		distance := pos.Distance(node.Center)
 		if distance < minDistance {
-			// 如果有Agent，检查Agent是否能放置在节点中心
+			// If there is an Agent, check if the Agent can be placed at the node center
 			if nba.agent != nil && nba.octree.IsAgentOccupied(nba.agent, node.Center) {
 				continue
 			}
@@ -572,7 +573,7 @@ func (nba *NodeBasedAStarPathfinder) findClosestNodeSpatial(pos math32.Vector3) 
 		}
 	}
 
-	// 如果候选节点中没有找到合适的，回退到全局搜索
+	// If no suitable candidate is found, fall back to global search
 	if closestNode == nil {
 		return nba.findClosestNodeBruteForce(pos)
 	}
@@ -580,7 +581,7 @@ func (nba *NodeBasedAStarPathfinder) findClosestNodeSpatial(pos math32.Vector3) 
 	return closestNode
 }
 
-// getSpatialCandidates 获取空间上最近的候选节点
+// getSpatialCandidates gets the closest candidate nodes in space
 func (nba *NodeBasedAStarPathfinder) getSpatialCandidates(pos math32.Vector3, maxCandidates int) []*PathNode {
 	type nodeDistance struct {
 		node     *PathNode
@@ -589,13 +590,13 @@ func (nba *NodeBasedAStarPathfinder) getSpatialCandidates(pos math32.Vector3, ma
 
 	candidates := make([]nodeDistance, 0)
 
-	// 收集所有节点的距离信息
+	// Collect distance information for all nodes
 	for _, node := range nba.graph.Nodes {
 		distance := pos.Distance(node.Center)
 		candidates = append(candidates, nodeDistance{node, distance})
 	}
 
-	// 按距离排序
+	// Sort by distance
 	for i := 0; i < len(candidates)-1; i++ {
 		for j := i + 1; j < len(candidates); j++ {
 			if candidates[i].distance > candidates[j].distance {
@@ -604,7 +605,7 @@ func (nba *NodeBasedAStarPathfinder) getSpatialCandidates(pos math32.Vector3, ma
 		}
 	}
 
-	// 返回最近的候选节点
+	// Return the closest candidate nodes
 	result := make([]*PathNode, 0, maxCandidates)
 	for i := 0; i < len(candidates) && i < maxCandidates; i++ {
 		result = append(result, candidates[i].node)
@@ -613,25 +614,25 @@ func (nba *NodeBasedAStarPathfinder) getSpatialCandidates(pos math32.Vector3, ma
 	return result
 }
 
-// findClosestNodeBruteForce 暴力搜索最近节点（备用方法）
+// findClosestNodeBruteForce brute force search for the closest node (backup method)
 func (nba *NodeBasedAStarPathfinder) findClosestNodeBruteForce(pos math32.Vector3) *PathNode {
 	var closestNode *PathNode
 	minDistance := math32.MaxFloat32
 
 	for _, node := range nba.graph.Nodes {
-		// 检查位置是否在节点边界内
+		// Check if the position is within the node boundary
 		if node.Bounds.Contains(pos) {
-			// 如果有Agent，检查Agent是否能放置在这个位置
+			// If there is an Agent, check if the Agent can be placed at this position
 			if nba.agent != nil && nba.octree.IsAgentOccupied(nba.agent, pos) {
 				continue
 			}
 			return node
 		}
 
-		// 计算到节点中心的距离
+		// Calculate the distance to the node center
 		distance := pos.Distance(node.Center)
 		if distance < minDistance {
-			// 如果有Agent，检查Agent是否能放置在节点中心
+			// If there is an Agent, check if the Agent can be placed at the node center
 			if nba.agent != nil && nba.octree.IsAgentOccupied(nba.agent, node.Center) {
 				continue
 			}
@@ -643,13 +644,13 @@ func (nba *NodeBasedAStarPathfinder) findClosestNodeBruteForce(pos math32.Vector
 	return closestNode
 }
 
-// astar 运行A*算法
+// astar runs the A* algorithm
 func (nba *NodeBasedAStarPathfinder) astar(startNode, endNode *PathNode) []*PathNode {
 	openHeap := &PathNodeHeap{}
 	heap.Init(openHeap)
 	closedSet := make(map[int32]bool)
 
-	// 重置所有节点的A*数据
+	// Reset all A* data for all nodes
 	for _, node := range nba.graph.Nodes {
 		node.GCost = math32.MaxFloat32
 		node.HCost = 0
@@ -678,7 +679,7 @@ func (nba *NodeBasedAStarPathfinder) astar(startNode, endNode *PathNode) []*Path
 
 		closedSet[current.ID] = true
 
-		// 检查所有相邻节点
+		// Check all adjacent nodes
 		for _, edge := range current.Edges {
 			neighbor := edge.NodeA
 			if neighbor == current {
@@ -706,15 +707,15 @@ func (nba *NodeBasedAStarPathfinder) astar(startNode, endNode *PathNode) []*Path
 		}
 	}
 
-	return nil // 没有找到路径
+	return nil // No path found
 }
 
-// heuristic 启发式函数
+// heuristic heuristic function
 func (nba *NodeBasedAStarPathfinder) heuristic(a, b *PathNode) float32 {
 	return a.Center.Distance(b.Center)
 }
 
-// reconstructNodePath 重构节点路径
+// reconstructNodePath reconstructs the node path
 func (nba *NodeBasedAStarPathfinder) reconstructNodePath(node *PathNode) []*PathNode {
 	var path []*PathNode
 	current := node
@@ -727,7 +728,7 @@ func (nba *NodeBasedAStarPathfinder) reconstructNodePath(node *PathNode) []*Path
 	return path
 }
 
-// convertToWorldPath 将节点路径转换为世界坐标路径
+// convertToWorldPath converts the node path to a world coordinate path
 func (nba *NodeBasedAStarPathfinder) convertToWorldPath(nodePath []*PathNode, start, end math32.Vector3) []math32.Vector3 {
 	if len(nodePath) == 0 {
 		return nil
@@ -735,10 +736,9 @@ func (nba *NodeBasedAStarPathfinder) convertToWorldPath(nodePath []*PathNode, st
 
 	startTime := time.Now()
 
-	// 对于长路径，使用漏斗算法
 	smoothedPath := nba.SmoothPath(nodePath)
 
-	// 如果漏斗算法失败，回退到传统方法
+	// If the funnel algorithm fails, fall back to the traditional method
 	if len(smoothedPath) == 0 {
 		path := []math32.Vector3{start}
 
@@ -756,22 +756,22 @@ func (nba *NodeBasedAStarPathfinder) convertToWorldPath(nodePath []*PathNode, st
 		path = append(path, end)
 		smoothedPath = path
 	} else {
-		// 确保起点和终点正确
+		// Ensure the start and end points are correct
 		if len(smoothedPath) > 0 {
 			smoothedPath[0] = start
 			smoothedPath[len(smoothedPath)-1] = end
 		}
 	}
 
-	// 后处理：轻度平滑和验证
+	// Post-processing: mild smoothing and validation
 	validated := nba.validatePathSafety(smoothedPath)
 
-	fmt.Printf("ConvertToWorldPath 时间: %v (漏斗算法)\n", time.Since(startTime))
+	fmt.Printf("ConvertToWorldPath time: %v (funnel algorithm)\n", time.Since(startTime))
 
 	return validated
 }
 
-// optimizePathWithLineOfSight 使用视线优化算法简化路径
+// SmoothPath smooths the path
 func (nba *NodeBasedAStarPathfinder) SmoothPath(pathNodes []*PathNode) []math32.Vector3 {
 
 	if len(pathNodes) <= 2 {
@@ -786,7 +786,7 @@ func (nba *NodeBasedAStarPathfinder) SmoothPath(pathNodes []*PathNode) []math32.
 	current := 0
 
 	for current < len(pathNodes)-1 {
-		// 尝试找到最远的可直达节点
+		// Try to find the farthest reachable node
 		farthest := current
 		for next := current + 1; next < len(pathNodes); next++ {
 			if nba.isPathClear(pathNodes[current].Center, pathNodes[next].Center) {
@@ -794,12 +794,12 @@ func (nba *NodeBasedAStarPathfinder) SmoothPath(pathNodes []*PathNode) []math32.
 			}
 		}
 
-		// 如果没有找到更远的节点，则只前进到下一个节点
+		// If no farther node is found, only move to the next node
 		if farthest == current {
 			farthest = current + 1
 		}
 
-		// 添加最远可达点
+		// Add the farthest reachable point
 		smoothed = append(smoothed, pathNodes[farthest].Center)
 		current = farthest
 	}
@@ -807,24 +807,24 @@ func (nba *NodeBasedAStarPathfinder) SmoothPath(pathNodes []*PathNode) []math32.
 	return smoothed
 }
 
-// isPathClear 检查两点之间的路径是否畅通
+// isPathClear checks if the path between two points is clear
 func (nba *NodeBasedAStarPathfinder) isPathClear(start, end math32.Vector3) bool {
-	// 计算方向向量和距离
+	// Calculate the direction vector and distance
 	direction := end.Sub(start)
 	distance := direction.Length()
 
-	if distance < 0.001 { // 距离太近，认为是同一点
+	if distance < 0.001 { // The distance is too close, considered the same point
 		return true
 	}
 
-	// 标准化方向向量
+	// Normalize the direction vector
 	direction = direction.Scale(1.0 / distance)
 
 	agentRadius := float32(0.4)
 	if nba.agent != nil {
 		agentRadius = nba.agent.Radius
 	}
-	// 使用适当的步长进行采样检查
+	// Use an appropriate step size for sampling checks
 	stepSize := math32.Max(0.1, agentRadius*0.6)
 	steps := math32.CeilToInt(distance / stepSize)
 
@@ -833,11 +833,8 @@ func (nba *NodeBasedAStarPathfinder) isPathClear(start, end math32.Vector3) bool
 		t := float32(i) / float32(steps)
 		samplePoint := start.Add(direction.Scale(distance * t))
 
-		// 如果有Agent半径，还需要检查Agent碰撞
+		// If there is an Agent radius, check for Agent collisions
 		occupied := nba.octree.IsAgentOccupied(nba.agent, samplePoint)
-		// if Log {
-		// 	fmt.Println(start, end, nq.agent, samplePoint, occupied)
-		// }
 		if occupied {
 			return false
 		}
@@ -847,24 +844,24 @@ func (nba *NodeBasedAStarPathfinder) isPathClear(start, end math32.Vector3) bool
 	return true
 }
 
-// findSafePointInNode 在节点内找到Agent的安全位置
+// findSafePointInNode finds the safe position for the Agent in the node
 func (nba *NodeBasedAStarPathfinder) findSafePointInNode(node *PathNode) *math32.Vector3 {
 	if nba.agent == nil {
 		return &node.Center
 	}
 
-	// 在节点边界内采样多个点
+	// Sample multiple points within the node boundary
 	bounds := node.Bounds
 	size := bounds.Size()
 
-	// 缩小搜索范围以避免边界碰撞
+	// Shrink the search range to avoid boundary collisions
 	margin := math32.Min(math32.Min(size.X, size.Y), size.Z) * 0.1
 	searchBounds := geometry.AABB{
 		Min: bounds.Min.Add(math32.Vector3{X: margin, Y: margin, Z: margin}),
 		Max: bounds.Max.Sub(math32.Vector3{X: margin, Y: margin, Z: margin}),
 	}
 
-	// 在搜索区域内采样
+	// Sample in the search area
 	samples := 8
 	for i := 0; i < samples; i++ {
 		for j := 0; j < samples; j++ {
@@ -888,11 +885,11 @@ func (nba *NodeBasedAStarPathfinder) findSafePointInNode(node *PathNode) *math32
 		}
 	}
 
-	// 如果找不到安全点，返回中心点
+	// If no safe point is found, return the center point
 	return &node.Center
 }
 
-// validatePathSafety 验证路径安全性
+// validatePathSafety validates the path safety
 func (nba *NodeBasedAStarPathfinder) validatePathSafety(path []math32.Vector3) []math32.Vector3 {
 	if len(path) <= 1 {
 		return path
@@ -904,12 +901,12 @@ func (nba *NodeBasedAStarPathfinder) validatePathSafety(path []math32.Vector3) [
 		lastPoint := validatedPath[len(validatedPath)-1]
 		currentPoint := path[i]
 
-		// 检查从上一个有效点到当前点的路径是否安全
+		// Check if the path from the last valid point to the current point is safe
 		if nba.isPathClear(lastPoint, currentPoint) {
 			validatedPath = append(validatedPath, currentPoint)
 		} else {
-			// 如果不安全，使用保守策略：保持原始路径结构
-			// 这确保我们不会因为平滑而引入穿墙问题
+			// If not safe, use a conservative strategy: keep the original path structure
+			// This ensures we don't introduce wall-through problems due to smoothing
 			validatedPath = append(validatedPath, currentPoint)
 		}
 	}
@@ -917,16 +914,16 @@ func (nba *NodeBasedAStarPathfinder) validatePathSafety(path []math32.Vector3) [
 	return validatedPath
 }
 
-// findSafeMidpoint 找到两点间的安全中间点
+// findSafeMidpoint finds the safe midpoint between two points
 func (nba *NodeBasedAStarPathfinder) FindSafeMidpoint(start, end math32.Vector3) *math32.Vector3 {
-	// 简单的中点策略
+	// Simple midpoint strategy
 	mid := math32.Vector3{
 		X: (start.X + end.X) / 2,
 		Y: (start.Y + end.Y) / 2,
 		Z: (start.Z + end.Z) / 2,
 	}
 
-	// 检查中点是否安全
+	// Check if the midpoint is safe
 	if nba.agent != nil {
 		if !nba.octree.IsAgentOccupied(nba.agent, mid) {
 			return &mid
@@ -940,38 +937,38 @@ func (nba *NodeBasedAStarPathfinder) FindSafeMidpoint(start, end math32.Vector3)
 	return nil
 }
 
-// hasObstacleBetween 检查两点间是否有障碍物
+// hasObstacleBetween checks if there is an obstacle between two points
 func (nba *NodeBasedAStarPathfinder) HasObstacleBetween(start, end math32.Vector3) bool {
-	// 使用isPathClear的反向结果，保持一致性
+	// Use the reverse result of isPathClear, maintain consistency
 	return !nba.isPathClear(start, end)
 }
 
-// GetPathGraph 获取路径图数据，用于可视化
+// GetPathGraph gets the path graph data, for visualization
 func (nba *NodeBasedAStarPathfinder) GetPathGraph() *PathGraph {
 	return nba.graph
 }
 
-// PathGraphData 用于JSON序列化的路径图数据结构
+// PathGraphData is the path graph data structure for JSON serialization
 type PathGraphData struct {
 	Nodes []PathNodeData `json:"nodes"`
 	Edges []PathEdgeData `json:"edges"`
 }
 
-// PathNodeData 用于JSON序列化的路径节点数据
+// PathNodeData is the path node data structure for JSON serialization
 type PathNodeData struct {
 	ID     int32          `json:"id"`
 	Center math32.Vector3 `json:"center"`
 	Bounds geometry.AABB  `json:"bounds"`
 }
 
-// PathEdgeData 用于JSON序列化的路径边数据
+// PathEdgeData is the path edge data structure for JSON serialization
 type PathEdgeData struct {
 	NodeAID int32   `json:"node_a_id"`
 	NodeBID int32   `json:"node_b_id"`
 	Cost    float32 `json:"cost"`
 }
 
-// ToPathGraphData 将PathGraph转换为可序列化的数据结构
+// ToPathGraphData converts the PathGraph to a serializable data structure
 func (nba *NodeBasedAStarPathfinder) ToPathGraphData() *PathGraphData {
 	if nba.graph == nil {
 		return &PathGraphData{
@@ -980,7 +977,7 @@ func (nba *NodeBasedAStarPathfinder) ToPathGraphData() *PathGraphData {
 		}
 	}
 
-	// 转换节点数据
+	// Convert node data
 	nodes := make([]PathNodeData, 0, len(nba.graph.Nodes))
 	for _, node := range nba.graph.Nodes {
 		nodes = append(nodes, PathNodeData{
@@ -990,7 +987,7 @@ func (nba *NodeBasedAStarPathfinder) ToPathGraphData() *PathGraphData {
 		})
 	}
 
-	// 转换边数据
+	// Convert edge data
 	edges := make([]PathEdgeData, 0, len(nba.graph.Edges))
 	for _, edge := range nba.graph.Edges {
 		edges = append(edges, PathEdgeData{
@@ -1006,9 +1003,9 @@ func (nba *NodeBasedAStarPathfinder) ToPathGraphData() *PathGraphData {
 	}
 }
 
-// buildMortonIndex 构建基于Morton编码的空间索引
+// buildMortonIndex builds the spatial index based on Morton coding
 func (nba *NodeBasedAStarPathfinder) buildMortonIndex() {
-	// 为所有节点计算Morton编码
+	// Calculate Morton codes for all nodes
 	nba.mortonSortedNodes = make([]MortonNodePair, 0, len(nba.graph.Nodes))
 
 	for _, node := range nba.graph.Nodes {
@@ -1019,13 +1016,13 @@ func (nba *NodeBasedAStarPathfinder) buildMortonIndex() {
 		})
 	}
 
-	// 按Morton编码排序
+	// Sort nodes by Morton code
 	nba.sortNodesByMorton()
 }
 
-// sortNodesByMorton 按Morton编码排序节点
+// sortNodesByMorton sorts nodes by Morton code
 func (nba *NodeBasedAStarPathfinder) sortNodesByMorton() {
-	// 使用快速排序按Morton编码排序
+	// Use quick sort to sort nodes by Morton code
 	for i := 0; i < len(nba.mortonSortedNodes)-1; i++ {
 		for j := i + 1; j < len(nba.mortonSortedNodes); j++ {
 			if nba.mortonSortedNodes[i].Morton > nba.mortonSortedNodes[j].Morton {
@@ -1035,16 +1032,16 @@ func (nba *NodeBasedAStarPathfinder) sortNodesByMorton() {
 	}
 }
 
-// findClosestNodeMorton 使用Morton编码快速找到最近的节点
+// findClosestNodeMorton uses Morton code to quickly find the closest node
 func (nba *NodeBasedAStarPathfinder) findClosestNodeMorton(pos math32.Vector3) *PathNode {
 	if len(nba.mortonSortedNodes) == 0 {
 		return nil
 	}
 
-	// 计算目标位置的Morton编码
+	// Calculate the Morton code for the target position
 	targetMorton := Vector3ToMorton(pos, nba.octree.Root.Bounds, nba.mortonResolution)
 
-	// 二分查找最接近的Morton编码
+	// Binary search for the closest Morton code
 	left, right := 0, len(nba.mortonSortedNodes)-1
 	bestIndex := 0
 
@@ -1058,7 +1055,7 @@ func (nba *NodeBasedAStarPathfinder) findClosestNodeMorton(pos math32.Vector3) *
 		}
 	}
 
-	// 检查前后几个候选节点，找到实际距离最近的
+	// Check the previous and next few candidate nodes, find the actual distance closest
 	candidates := nba.getMortonCandidates(bestIndex, 10)
 
 	var closestNode *PathNode
@@ -1067,7 +1064,7 @@ func (nba *NodeBasedAStarPathfinder) findClosestNodeMorton(pos math32.Vector3) *
 	for _, candidate := range candidates {
 		distance := pos.Distance(candidate.Center)
 		if distance < minDistance {
-			// 如果有Agent，检查Agent是否能放置在节点中心
+			// If there is an Agent, check if the Agent can be placed at the node center
 			if nba.agent != nil && nba.octree.IsAgentOccupied(nba.agent, candidate.Center) {
 				continue
 			}
@@ -1079,17 +1076,17 @@ func (nba *NodeBasedAStarPathfinder) findClosestNodeMorton(pos math32.Vector3) *
 	return closestNode
 }
 
-// getMortonCandidates 获取Morton索引附近的候选节点
+// getMortonCandidates gets the candidate nodes near the Morton index
 func (nba *NodeBasedAStarPathfinder) getMortonCandidates(centerIndex, count int) []*PathNode {
 	candidates := make([]*PathNode, 0, count)
 
-	// 从中心向两边扩展
+	// Expand from the center to both sides
 	for i := 0; i < count && (centerIndex-i >= 0 || centerIndex+i < len(nba.mortonSortedNodes)); i++ {
-		// 向左扩展
+		// Expand to the left
 		if centerIndex-i >= 0 {
 			candidates = append(candidates, nba.mortonSortedNodes[centerIndex-i].Node)
 		}
-		// 向右扩展（避免重复添加中心节点）
+		// Expand to the right (avoid adding the center node twice)
 		if i > 0 && centerIndex+i < len(nba.mortonSortedNodes) {
 			candidates = append(candidates, nba.mortonSortedNodes[centerIndex+i].Node)
 		}

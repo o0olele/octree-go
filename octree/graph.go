@@ -5,15 +5,15 @@ import (
 	"github.com/o0olele/octree-go/math32"
 )
 
-// PathNode 寻路节点，对应八叉树中的空白叶子节点
+// PathNode is the path node, corresponding to the empty leaf node in the octree
 type PathNode struct {
 	ID         int32
 	Center     math32.Vector3
 	Bounds     geometry.AABB
 	Edges      []*PathEdge
-	OctreeNode *OctreeNode // 对应的八叉树节点
+	OctreeNode *OctreeNode // The corresponding octree node
 
-	// A*算法相关字段
+	// A* algorithm related fields
 	GCost     float32
 	HCost     float32
 	FCost     float32
@@ -25,20 +25,21 @@ func (n *PathNode) CalculateFCost() {
 	n.FCost = n.GCost + n.HCost
 }
 
-// PathEdge 寻路边，连接相邻的空白节点
+// PathEdge is the path edge, connecting adjacent empty nodes
 type PathEdge struct {
 	NodeA *PathNode
 	NodeB *PathNode
 	Cost  float32
 }
 
-// PathGraph 寻路图
+// PathGraph is the path graph
 type PathGraph struct {
 	Nodes  map[*OctreeNode]*PathNode
 	Edges  []*PathEdge
 	nextID int32
 }
 
+// NewPathGraph creates a new path graph
 func NewPathGraph() *PathGraph {
 	return &PathGraph{
 		Nodes:  make(map[*OctreeNode]*PathNode),
@@ -47,6 +48,7 @@ func NewPathGraph() *PathGraph {
 	}
 }
 
+// AddNode adds a new node to the path graph
 func (g *PathGraph) AddNode(octreeNode *OctreeNode) *PathNode {
 	if node, exists := g.Nodes[octreeNode]; exists {
 		return node
@@ -65,8 +67,9 @@ func (g *PathGraph) AddNode(octreeNode *OctreeNode) *PathNode {
 	return node
 }
 
+// AddEdge adds a new edge to the path graph
 func (g *PathGraph) AddEdge(nodeA, nodeB *PathNode) {
-	// 计算边的代价（距离）
+	// Calculate the cost of the edge (distance)
 	cost := nodeA.Center.Distance(nodeB.Center)
 
 	edge := &PathEdge{
@@ -80,7 +83,7 @@ func (g *PathGraph) AddEdge(nodeA, nodeB *PathNode) {
 	nodeB.Edges = append(nodeB.Edges, edge)
 }
 
-// PathNodeHeap A*算法的优先队列
+// PathNodeHeap is the priority queue for the A* algorithm
 type PathNodeHeap []*PathNode
 
 func (h PathNodeHeap) Len() int           { return len(h) }
@@ -91,12 +94,14 @@ func (h PathNodeHeap) Swap(i, j int) {
 	h[j].HeapIndex = j
 }
 
+// Push pushes a new node to the priority queue
 func (h *PathNodeHeap) Push(x interface{}) {
 	node := x.(*PathNode)
 	node.HeapIndex = len(*h)
 	*h = append(*h, node)
 }
 
+// Pop pops a node from the priority queue
 func (h *PathNodeHeap) Pop() interface{} {
 	old := *h
 	n := len(old)
