@@ -8,7 +8,7 @@ A Go implementation of an Octree spatial partitioning and pathfinding library, s
 
 - **Octree Space Partitioning**: Efficient 3D space segmentation and management
 - **Agent Pathfinding**: Supports agent navigation with capsule-shaped agents (considers agent size)
-- **A* Pathfinding**: A* algorithm for efficient pathfinding
+- **A-Star Pathfinding**: A* and Bidirectional A* algorithm for efficient pathfinding
 - **Multi-shape Support**: Geometric primitives including triangles, boxes, and capsules
 - **Web API**: RESTful API endpoints for easy integration
 - **Real-time Visualization**: Built-in web interface for visualizing octrees and paths
@@ -19,113 +19,119 @@ A Go implementation of an Octree spatial partitioning and pathfinding library, s
     go get github.com/o0olele/octree-go
   ~~~
 
+## Usage
 
-## New Agent Pathfinding Capabilities
-
-### Agent Concept
-Agents are represented as capsules with:
-- **Radius**: Cross-sectional radius of the capsule
-- **Height**: Height of the cylindrical portion (excluding hemispherical ends)
-
-### API Updates
-
-#### Pathfinding Request (POST /findpath)
-```json
-{
-    "start": {"x": -8.0, "y": 0.0, "z": 0.0},
-    "end": {"x": 8.0, "y": 0.0, "z": 0.0},
-    "step_size": 0.5,
-    "agent_radius": 0.5,    // Optional
-    "agent_height": 1.8     // Optional
-}
-```
-
-#### Collision Check (GET /checkoccupied)
-```
-GET /checkoccupied?x=0&y=0&z=0&agent_radius=0.5&agent_height=1.8
-```
-
-### Usage Examples
-
-#### Basic Pathfinding (Point Navigation)
+### Build navigation data
 ```go
-// Create octree
-bounds := octree.AABB{
-    Min: octree.Vector3{X: -10, Y: -10, Z: -10},
-    Max: octree.Vector3{X: 10, Y: 10, Z: 10},
+bounds := geometry.AABB{
+	Min: math32.Vector3{X: -10, Y: -10, Z: -10},
+	Max: math32.Vector3{X: 10, Y: 10, Z: 10},
 }
-tree := octree.NewOctree(bounds, 6, 0.5)
 
-// Add obstacle
-box := octree.Box{
-    Center: octree.Vector3{X: 0, Y: 0, Z: 0},
-    Size: octree.Vector3{X: 2, Y: 4, Z: 2},
+// Create a new navigation builder
+navBuilder := builder.NewBuilder(bounds, 10, 1, 1)
+
+// Use voxel for collision detection
+navBuilder.SetUseVoxel(true)
+
+// Add obstacles
+navBuilder.AddTriangle(geometry.Triangle{
+	A: math32.Vector3{X: 0, Y: 0, Z: 0},
+	B: math32.Vector3{X: 1, Y: 0, Z: 0},
+	C: math32.Vector3{X: 0, Y: 1, Z: 0},
+})
+
+// Create a new agent
+agent := octree.NewAgent(0.4, 1)
+
+// Build the navigation data
+navData, err := navBuilder.Build(agent)
+if err != nil {
+	log.Fatalf("Failed to build navigation data: %v", err)
 }
-tree.AddGeometry(box)
-tree.Build()
 
-// Create pathfinder
-pathfinder := octree.NewAStarPathfinder(tree, 0.5)
-
-// Point pathfinding
-start := octree.Vector3{X: -8, Y: 0, Z: 0}
-end := octree.Vector3{X: 8, Y: 0, Z: 0}
-path := pathfinder.FindPath(start, end)
+// Save the navigation data to a file
+builder.Save(navData, "navigation.bin")
 ```
 
-#### Agent Pathfinding (Size-Aware)
+### Query navigation data
 ```go
-// Create agent
-agent := octree.NewAgent(0.5, 1.8) // Radius=0.5, Height=1.8
-pathfinder.SetAgent(agent)
+// Load the navigation data
+navData, err := builder.Load("navigation.bin")
+if err != nil {
+	log.Fatalf("Failed to load navigation data: %v", err)
+}
 
-// Agent pathfinding
-path := pathfinder.FindPath(start, end)
+// Create a new navigation query
+q, err := query.NewNavigationQuery(navData)
+if err != nil {
+	log.Fatalf("Failed to create navigation query: %v", err)
+}
 
-// Check agent collision at position
-position := octree.Vector3{X: 1, Y: 0, Z: 0}
-occupied := tree.IsAgentOccupied(agent, position)
+// Set the agent  
+q.SetAgent(octree.NewAgent(0.4, 1))
+
+// Find the path
+path := q.FindPath(math32.Vector3{X: 0, Y: 0, Z: 0}, math32.Vector3{X: 10, Y: 10, Z: 10})
+
+// Print the path
+fmt.Println(path)
 ```
 
-### Collision Detection Principles
+## Visualization
 
-#### Capsule vs. Primitive Detection
-- **Capsule vs. Triangle**: Minimum distance from capsule axis to triangle edges
-- **Capsule vs. Box**: Distance from closest point on capsule axis to box surface
-- **Capsule vs. Capsule**: Shortest distance between capsule axes
+### Build
 
-#### Optimization Strategies
-- AABB-based broad-phase collision detection
-- Precise collision detection only for passing geometries
-- Octree spatial partitioning to reduce collision checks
+- First clone the repository
+  ```bash
+  git clone https://github.com/o0olele/octree-go.git
+  ```
+- Run the server
+  ```bash
+  go run main.go
+  ```
+- Access the visualization at `http://localhost:8080`
 
-## Running Tests
+### Web Interface
 
-```bash
-# Compile and run web server
-go build -o octree-server .
-./octree-server
-```
+- Initialize Octree
+  
+  Click the "Initialize Octree" button to initialize the octree.
 
-## Web Interface
-Access visualization at `http://localhost:8080`
+- Add Geometry
+  
+  Then you can add geometry to the octree. 
+  
+  Gltf and Obj files are supported. After load the 3d model, you need to click "Re-Initialize Octree" to update the octree bounds, and then click "Load Gltf/Obj" button to reload the 3d model.
 
-## API Documentation
+- Build Octree
 
-### Initialize Octree
-- **POST** `/init`
-- **Body**: `{"bounds": {...}, "max_depth": 6, "min_size": 0.5}`
+  Click the "Build Octree" button to build the octree and the navigation data. 
+  
+  For agent usage, you need enable the "Enable agent-base Pathfinding" checkbox before build.
 
-### Add Geometry
-- **POST** `/addgeometry`
-- **Body**: `{"type": "box|triangle|capsule", "data": {...}}`
+- Find Path
 
-### Build Octree
-- **POST** `/build`
+  After build, you can click the "Find Path" button to find the path.
 
-### Find Path
-- **POST** `/findpath`
-- **Body**: `{"start": {...}, "end": {...}, "step_size": 0.5, "agent_radius": 0.5, "agent_height": 1.8}`
+  You can set the start and end points, and the step size.
 
-### Check Occupancy
-- **GET** `/checkoccupied?x=0&y=0&z=0&agent_radius=0.5&agent_height=1.8`
+### API
+
+- Initialize Octree
+  - **POST** `/init`
+  - **Body**: `{"bounds": {...}, "max_depth": 6, "min_size": 0.5}`
+
+- Add Geometry
+  - **POST** `/addgeometry`
+  - **Body**: `{"type": "box|triangle|capsule", "data": {...}}`
+
+- Build Octree
+  - **POST** `/build`
+
+- Find Path
+  - **POST** `/findpath`
+  - **Body**: `{"start": {...}, "end": {...}, "step_size": 0.5, "agent_radius": 0.5, "agent_height": 1.8}`
+
+- Check Occupancy
+  - **GET** `/checkoccupied?x=0&y=0&z=0&agent_radius=0.5&agent_height=1.8`
