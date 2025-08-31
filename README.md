@@ -97,10 +97,6 @@ fmt.Println(path)
 
 ### Web Interface
 
-- Initialize Octree
-  
-  Click the "Initialize Octree" button to initialize the octree.
-
 - Add Geometry
   
   Then you can add geometry to the octree. 
@@ -120,15 +116,6 @@ fmt.Println(path)
   You can set the start and end points, and the step size.
 
 ### API
-
-- Initialize Octree
-  - **POST** `/init`
-  - **Body**: `{"bounds": {...}, "max_depth": 6, "min_size": 0.5}`
-
-- Add Geometry
-  - **POST** `/addgeometry`
-  - **Body**: `{"type": "box|triangle|capsule", "data": {...}}`
-
 - Build Octree
   - **POST** `/build`
 
