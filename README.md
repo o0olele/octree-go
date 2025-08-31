@@ -4,6 +4,8 @@ A Go implementation of an Octree spatial partitioning and pathfinding library, s
 
 ![img](./img/app.png)
 
+(For visualization above, please refer to [workbench-go](https://github.com/o0olele/workbench-go) )
+
 ## Features
 
 - **Octree Space Partitioning**: Efficient 3D space segmentation and management
