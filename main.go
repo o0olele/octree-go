@@ -40,6 +40,15 @@ type AddGeometryRequest struct {
 	Data json.RawMessage `json:"data"`
 }
 
+// 统一构建Octree请求结构
+type BuildOctreeRequest struct {
+	Bounds    geometry.AABB       `json:"bounds"`    // 边界
+	MaxDepth  uint8               `json:"max_depth"` // 最大深度
+	MinSize   float32             `json:"min_size"`  // 最小尺寸
+	Agent     *octree.Agent       `json:"agent"`     // Agent信息
+	Triangles []geometry.Triangle `json:"triangles"` // 三角形数据
+}
+
 // 路径查找请求结构
 type PathfindRequest struct {
 	Start       math32.Vector3 `json:"start"`
@@ -56,54 +65,6 @@ type PathfindResponse struct {
 	Found  bool             `json:"found"`
 	Length int              `json:"length"`
 	Debug  interface{}      `json:"debug,omitempty"`
-}
-
-// 初始化导航构建器
-func initOctreeHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("initOctreeHandler")
-	var req InitRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	// 创建导航构建器
-	navigationBuilder = builder.NewBuilder(req.Bounds, req.MaxDepth, req.MinSize, req.MinSize)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "initialized"})
-	fmt.Println("Navigation builder initialized")
-}
-
-// 构建导航网格
-func buildOctreeHandler(w http.ResponseWriter, r *http.Request) {
-	if navigationBuilder == nil {
-		http.Error(w, "Navigation builder not initialized", http.StatusBadRequest)
-		return
-	}
-
-	navigationBuilder.SetUseVoxel(true)
-	// 构建导航数据
-	navData, err := navigationBuilder.Build(globalAgent)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to build navigation data: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	// 创建导航查询器
-	navigationQuery, err = query.NewNavigationQuery(navData)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to create navigation query: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	err = builder.Save(navData, "test.nav")
-	if err != nil {
-		fmt.Println("Failed to save navigation data: ", err)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "built"})
 }
 
 // 获取八叉树结构
@@ -238,30 +199,6 @@ func getPathGraphHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(pathGraphData)
 }
 
-// 批量添加三角形mesh
-func addMeshHandler(w http.ResponseWriter, r *http.Request) {
-	if navigationBuilder == nil {
-		http.Error(w, "Octree not initialized", http.StatusBadRequest)
-		return
-	}
-
-	var triangles []geometry.Triangle
-	if err := json.NewDecoder(r.Body).Decode(&triangles); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	for _, triangle := range triangles {
-		navigationBuilder.AddTriangle(triangle)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "added",
-		"count":  len(triangles),
-	})
-}
-
 // 静态文件服务
 func staticFileHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "./web/"+r.URL.Path[1:])
@@ -350,6 +287,64 @@ func loadHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// 统一构建Octree处理函数
+func buildOctreeUnifiedHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("buildOctreeUnifiedHandler")
+	var req BuildOctreeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// 1. 初始化导航构建器
+	navigationBuilder = builder.NewBuilder(req.Bounds, req.MaxDepth, req.MinSize, req.MinSize)
+	fmt.Println("Navigation builder initialized")
+
+	// 2. 设置Agent
+	if req.Agent != nil {
+		globalAgent = octree.NewAgent(req.Agent.Radius, req.Agent.Height)
+		fmt.Printf("Agent set: radius=%.2f, height=%.2f\n", req.Agent.Radius, req.Agent.Height)
+	}
+
+	// 3. 添加三角形
+	if len(req.Triangles) > 0 {
+		for _, triangle := range req.Triangles {
+			navigationBuilder.AddTriangle(triangle)
+		}
+		fmt.Printf("Added %d triangles\n", len(req.Triangles))
+	}
+
+	// 4. 构建导航数据
+	navigationBuilder.SetUseVoxel(true)
+	navData, err := navigationBuilder.Build(globalAgent)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to build navigation data: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// 5. 创建导航查询器
+	navigationQuery, err = query.NewNavigationQuery(navData)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to create navigation query: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// 6. 保存导航数据
+	err = builder.Save(navData, "test.nav")
+	if err != nil {
+		fmt.Println("Failed to save navigation data: ", err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":          "built",
+		"triangles_count": len(req.Triangles),
+		"agent":           globalAgent,
+		"bounds":          req.Bounds,
+	})
+	fmt.Println("Octree built successfully")
+}
+
 func addAgentHandler(w http.ResponseWriter, r *http.Request) {
 	var req octree.Agent
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -372,10 +367,9 @@ func main() {
 
 	// API 路由
 	api := r.PathPrefix("/api").Subrouter()
-	api.HandleFunc("/init", initOctreeHandler).Methods("POST")
+	// 新的统一构建接口
+	api.HandleFunc("/build-unified", buildOctreeUnifiedHandler).Methods("POST")
 	api.HandleFunc("/agent", addAgentHandler).Methods("POST")
-	api.HandleFunc("/mesh", addMeshHandler).Methods("POST")
-	api.HandleFunc("/build", buildOctreeHandler).Methods("POST")
 	api.HandleFunc("/octree", getOctreeHandler).Methods("GET")
 	api.HandleFunc("/pathfind", findPathHandler).Methods("POST")
 	api.HandleFunc("/occupied", checkOccupiedHandler).Methods("GET")

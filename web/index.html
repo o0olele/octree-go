@@ -10,16 +10,7 @@
     <div id="container">
         <div id="ui">
             <h3>Octree Pathfinding Demo</h3>
-            
-            <div class="control-group">
-                <label>Scene Setup</label>
-                <button id="initBtn">Initialize Octree</button>
-                <div id="boundsInfo" style="margin-top: 5px; padding: 5px; background: rgba(255,255,255,0.05); border-radius: 3px; font-size: 12px; display: none;">
-                    <strong>Scene Bounds:</strong><br>
-                    <span id="boundsText">No geometries loaded</span>
-                </div>
-            </div>
-            
+
             <div class="control-group">
                 <label>Add Geometry</label>
                 <select id="geometryType">
@@ -54,24 +45,24 @@
             </div>
             
             <div class="control-group">
-                <button id="buildBtn" disabled>Build Octree</button>
+                <button id="buildBtn">Build Octree</button>
             </div>
             
             <div class="control-group">
                 <label>Start Position (X, Y, Z)</label>
                 <div class="coords-input">
-                    <input type="number" id="startX" value="-8" step="0.5">
-                    <input type="number" id="startY" value="0" step="0.5">
-                    <input type="number" id="startZ" value="-8" step="0.5">
+                    <input type="number" id="startX" value="-23.5" step="0.5">
+                    <input type="number" id="startY" value="-7.5" step="0.5">
+                    <input type="number" id="startZ" value="24" step="0.5">
                 </div>
             </div>
             
             <div class="control-group">
                 <label>End Position (X, Y, Z)</label>
                 <div class="coords-input">
-                    <input type="number" id="endX" value="8" step="0.5">
-                    <input type="number" id="endY" value="0" step="0.5">
-                    <input type="number" id="endZ" value="8" step="0.5">
+                    <input type="number" id="endX" value="-18.5" step="0.5">
+                    <input type="number" id="endY" value="18" step="0.5">
+                    <input type="number" id="endZ" value="6.5" step="0.5">
                 </div>
             </div>
             

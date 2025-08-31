@@ -102,9 +102,9 @@ class OctreeVisualizer {
     }
 
     setupEventListeners() {
-        document.getElementById('initBtn').addEventListener('click', () => this.initializeOctree());
+        // document.getElementById('initBtn').addEventListener('click', () => this.initializeOctree());
         document.getElementById('addGeometryBtn').addEventListener('click', () => this.addRandomGeometry());
-        document.getElementById('buildBtn').addEventListener('click', () => this.buildOctree());
+        document.getElementById('buildBtn').addEventListener('click', () => this.buildOctreeUnified());
         document.getElementById('pathfindBtn').addEventListener('click', () => this.findPath());
         document.getElementById('toggleOctreeBtn').addEventListener('click', () => this.toggleOctreeVisualization());
         document.getElementById('togglePathGraphBtn').addEventListener('click', () => this.togglePathGraphVisualization());
@@ -210,6 +210,7 @@ class OctreeVisualizer {
 
             if (response.ok) {
                 document.getElementById('buildBtn').disabled = false;
+                document.getElementById('buildUnifiedBtn').disabled = false;
                 this.updateStatus(`Octree initialized with bounds: [${bounds.min.x.toFixed(1)}, ${bounds.min.y.toFixed(1)}, ${bounds.min.z.toFixed(1)}] to [${bounds.max.x.toFixed(1)}, ${bounds.max.y.toFixed(1)}, ${bounds.max.z.toFixed(1)}]. Scene size: ${maxDimension.toFixed(1)} units. MinSize: ${optimalMinSize.toFixed(1)}, MaxDepth: ${suggestedMaxDepth}`);
 
                 // Reset button state
@@ -291,6 +292,19 @@ class OctreeVisualizer {
         const sizeZ = maxZ - minZ;
         const maxSize = Math.max(sizeX, sizeY, sizeZ);
         const padding = Math.max(maxSize * 0.2, 2.0); // At least 2 units padding
+
+        return {
+            min: {
+                x: minX,
+                y: minY,
+                z: minZ
+            },
+            max: {
+                x: maxX,
+                y: maxY,
+                z: maxZ
+            }
+        };
 
         return {
             min: {
@@ -412,30 +426,23 @@ class OctreeVisualizer {
                     }
                 ];
 
-                const response = await fetch(`${this.apiBase}/mesh`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(triangles)
+                // Create visual representation
+                const geometry = new THREE.TetrahedronGeometry(size);
+                const material = new THREE.MeshLambertMaterial({
+                    color: new THREE.Color().setHSL(Math.random(), 0.7, 0.5),
+                    transparent: true,
+                    opacity: 0.8
                 });
+                visualGeometry = new THREE.Mesh(geometry, material);
+                visualGeometry.position.copy(center);
+                visualGeometry.castShadow = true;
+                visualGeometry.receiveShadow = true;
 
-                if (response.ok) {
-                    // Create visual representation
-                    const geometry = new THREE.TetrahedronGeometry(size);
-                    const material = new THREE.MeshLambertMaterial({
-                        color: new THREE.Color().setHSL(Math.random(), 0.7, 0.5),
-                        transparent: true,
-                        opacity: 0.8
-                    });
-                    visualGeometry = new THREE.Mesh(geometry, material);
-                    visualGeometry.position.copy(center);
-                    visualGeometry.castShadow = true;
-                    visualGeometry.receiveShadow = true;
+                this.geometryGroup.add(visualGeometry);
+                this.updateStatus(`Added triangle mesh with ${triangles.length} triangles`);
+                this.updateBoundsDisplay();
+                return;
 
-                    this.geometryGroup.add(visualGeometry);
-                    this.updateStatus(`Added triangle mesh with ${triangles.length} triangles`);
-                    this.updateBoundsDisplay();
-                    return;
-                }
 
             } else if (type === 'convex_mesh') {
                 // Create a random convex mesh (cube-like shape with random vertices)
@@ -511,23 +518,9 @@ class OctreeVisualizer {
                 visualGeometry.receiveShadow = true;
             }
 
-            // Send geometry to server
-            const response = await fetch(`${this.apiBase}/geometry`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    type: type,
-                    data: geometryData
-                })
-            });
-
-            if (response.ok) {
-                this.geometryGroup.add(visualGeometry);
-                this.updateStatus(`Added ${type} successfully`);
-                this.updateBoundsDisplay();
-            } else {
-                throw new Error(`Failed to add ${type}`);
-            }
+            this.geometryGroup.add(visualGeometry);
+            this.updateStatus(`Added ${type} successfully`);
+            this.updateBoundsDisplay();
 
         } catch (error) {
             this.updateStatus(`Error: ${error.message}`);
@@ -549,6 +542,97 @@ class OctreeVisualizer {
                 this.updateStatus('Octree built successfully');
             } else {
                 throw new Error('Failed to build octree');
+            }
+        } catch (error) {
+            this.updateStatus(`Error: ${error.message}`);
+        }
+    }
+
+    async buildOctreeUnified() {
+        this.updateStatus('Building octree with unified interface...');
+
+        try {
+            // Calculate bounds based on all loaded geometries
+            const bounds = this.calculateSceneBounds();
+
+            // Calculate scene size and suggest optimal parameters
+            const sceneSize = {
+                x: bounds.max.x - bounds.min.x,
+                y: bounds.max.y - bounds.min.y,
+                z: bounds.max.z - bounds.min.z
+            };
+            const maxDimension = Math.max(sceneSize.x, sceneSize.y, sceneSize.z);
+
+            // Automatically adjust parameters for large scenes
+            let optimalMinSize = 1.0;
+            let suggestedMaxDepth = 5;
+
+            if (maxDimension > 50) {
+                optimalMinSize = Math.max(1.0, maxDimension / 100);
+                suggestedMaxDepth = Math.min(10, Math.ceil(Math.log2(maxDimension / optimalMinSize)));
+            } else if (maxDimension > 10) {
+                suggestedMaxDepth = Math.min(8, 6 + Math.ceil(maxDimension / 20));
+                optimalMinSize = Math.max(0.5, maxDimension / 50);
+            }
+
+            // Get agent parameters from UI
+            const stepSize = parseFloat(document.getElementById('stepSize').value) || 0.5;
+            const agent = {
+                radius: stepSize / 2,
+                height: stepSize * 2,
+                max_climb: stepSize / 4,
+                max_slope: 45.0
+            };
+
+            // Collect all triangles from loaded models
+            const triangles = [];
+
+            // Extract triangles from GLTF models
+            this.gltfGroup.traverse((child) => {
+                if (child.isMesh && child.geometry) {
+                    const modelTriangles = this.extractTrianglesFromGltf(child.parent, 1.0);
+                    triangles.push(...modelTriangles);
+                }
+            });
+
+            // Extract triangles from OBJ models
+            this.objGroup.traverse((child) => {
+                if (child.isMesh && child.geometry) {
+                    const modelTriangles = this.extractTrianglesFromObj(child.parent, 1.0);
+                    triangles.push(...modelTriangles);
+                }
+            });
+
+            this.geometryGroup.traverse((child) => {
+                if (child.isMesh && child.geometry) {
+                    const modelTriangles = this.extractTrianglesFromObj(child.parent, 1.0);
+                    triangles.push(...modelTriangles);
+                }
+            });
+
+            // Prepare unified request
+            const requestData = {
+                bounds: bounds,
+                max_depth: suggestedMaxDepth,
+                min_size: optimalMinSize,
+                agent: agent,
+                triangles: triangles
+            };
+
+            const response = await fetch(`${this.apiBase}/build-unified`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData)
+            });
+
+            if (response.ok) {
+                document.getElementById('pathfindBtn').disabled = false;
+                await this.loadOctreeData();
+                await this.loadPathGraphData();
+                this.updateStatus(`Octree built successfully with unified interface. Scene size: ${maxDimension.toFixed(1)} units, ${triangles.length} triangles processed.`);
+            } else {
+                const errorText = await response.text();
+                throw new Error(`Failed to build octree: ${errorText}`);
             }
         } catch (error) {
             this.updateStatus(`Error: ${error.message}`);
@@ -743,6 +827,18 @@ class OctreeVisualizer {
                     throw new Error('Failed to add agent');
                 }
             }
+
+            if (this.octreeData !== null) {
+                // check agent 
+                const response = await fetch(`${this.apiBase}/occupied?x=${start.x}&y=${start.y}&z=${start.z}&agent_radius=0.4&agent_height=1.1`);
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log(result);
+                } else {
+                    throw new Error('Failed to add agent');
+                }
+            }
+
             // Create capsule representations for start and end
             this.createAgentMarker(start, 0x00ff00, agentRadius, agentHeight, 'start');
             this.createAgentMarker(end, 0xff0000, agentRadius, agentHeight, 'end');
