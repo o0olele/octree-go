@@ -6,15 +6,15 @@ import (
 	"github.com/o0olele/octree-go/builder"
 )
 
-// LoadAndQuery 加载导航数据并创建查询器（一步到位）
+// LoadAndQuery loads the navigation data and creates the queryer (one-stop)
 func LoadAndQuery(filename string) (*NavigationQuery, error) {
-	// 加载导航数据
+	// Load the navigation data
 	navData, err := builder.Load(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load navigation data: %v", err)
 	}
 
-	// 创建查询器
+	// Create the queryer
 	query, err := NewNavigationQuery(navData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create navigation query: %v", err)

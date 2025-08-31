@@ -2,7 +2,7 @@
 
 A Go implementation of an Octree spatial partitioning and pathfinding library, supporting efficient collision detection and path planning in 3D environments.
 
-![img](./img/example.png)
+![img](./img/app.png)
 
 ## Features
 
@@ -14,10 +14,9 @@ A Go implementation of an Octree spatial partitioning and pathfinding library, s
 - **Real-time Visualization**: Built-in web interface for visualizing octrees and paths
 
 ## Installation
-- install by go get
-  ~~~shell
-    go get github.com/o0olele/octree-go
-  ~~~
+```shell
+go get github.com/o0olele/octree-go
+```
 
 ## Usage
 
@@ -79,6 +78,8 @@ fmt.Println(path)
 ```
 
 ## Visualization
+
+![example](./img/example.png)
 
 ### Build
 
