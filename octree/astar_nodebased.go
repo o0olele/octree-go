@@ -191,11 +191,6 @@ func (nba *NodeBasedAStarPathfinder) buildConnectionsParallel(nodes []*OctreeNod
 		workerResults[i] = make([]EdgeResult, 0, totalPairs/numWorkers+100)
 	}
 
-	// 获取当前内存占用量
-	memStats := &runtime.MemStats{}
-	runtime.ReadMemStats(memStats)
-	fmt.Printf("PathGraph build connections: initial memory: %d bytes\n", memStats.Alloc)
-
 	var wg sync.WaitGroup
 	currentPair := int64(0)
 
