@@ -125,15 +125,14 @@ func (nba *NodeBasedAStarPathfinder) buildConnections(nodes []*OctreeNode) {
 	totalChecks := 0
 
 	for i, nodeA := range nodes {
-		pathNodeA := nba.graph.Nodes[nodeA]
-
 		for j := i + 1; j < len(nodes); j++ {
 			nodeB := nodes[j]
-			pathNodeB := nba.graph.Nodes[nodeB]
 			totalChecks++
 
 			// Check if the two nodes are adjacent (boundary intersects or touches)
 			if nba.areNodesAdjacent(nodeA, nodeB) {
+				pathNodeA := nba.graph.Nodes[nodeA]
+				pathNodeB := nba.graph.Nodes[nodeB]
 				nba.graph.AddEdge(pathNodeA, pathNodeB)
 				totalConnections++
 			}
@@ -191,6 +190,11 @@ func (nba *NodeBasedAStarPathfinder) buildConnectionsParallel(nodes []*OctreeNod
 	for i := range workerResults {
 		workerResults[i] = make([]EdgeResult, 0, totalPairs/numWorkers+100)
 	}
+
+	// 获取当前内存占用量
+	memStats := &runtime.MemStats{}
+	runtime.ReadMemStats(memStats)
+	fmt.Printf("PathGraph build connections: initial memory: %d bytes\n", memStats.Alloc)
 
 	var wg sync.WaitGroup
 	currentPair := int64(0)
